@@ -1,0 +1,97 @@
+{
+  "bfecc9ef-ca24-4255-a3bd-b6bdae6a0ddc": {
+    "id": "bfecc9ef-ca24-4255-a3bd-b6bdae6a0ddc",
+    "name": "hgfgh",
+    "avatar": null,
+    "created_by": "Ram",
+    "admins": [
+      "Ram"
+    ],
+    "members": [
+      "AnilMagar",
+      "Ram",
+      "hari",
+      "sita@gmail.com"
+    ],
+    "created_at": "2026-05-08T09:49:22.363350",
+    "updated_at": "2026-05-08T09:49:57.248859",
+    "last_message": "hii",
+    "last_message_time": "2026-05-08T09:49:57.248859"
+  },
+  "01365eee-e07e-4f59-b8d1-00ff5e8902cc": {
+    "id": "01365eee-e07e-4f59-b8d1-00ff5e8902cc",
+    "name": "gh",
+    "avatar": null,
+    "created_by": "rana",
+    "admins": [
+      "rana"
+    ],
+    "members": [
+      "AnilMagar",
+      "Ram",
+      "rana"
+    ],
+    "created_at": "2026-05-08T10:35:33.311525",
+    "updated_at": "2026-05-08T10:35:33.311525",
+    "last_message": "",
+    "last_message_time": "2026-05-08T10:35:33.311525"
+  },
+  "555de766-5a58-42a7-a943-f5bcb7977475": {
+    "id": "555de766-5a58-42a7-a943-f5bcb7977475",
+    "name": "gh",
+    "avatar": null,
+    "created_by": "rana",
+    "admins": [
+      "rana"
+    ],
+    "members": [
+      "AnilMagar",
+      "Ram",
+      "rana"
+    ],
+    "created_at": "2026-05-08T10:35:36.517707",
+    "updated_at": "2026-05-08T10:35:36.517707",
+    "last_message": "",
+    "last_message_time": "2026-05-08T10:35:36.517707"
+  },
+  "4ad8a1b8-dbab-4c48-982c-c659300ccd89": {
+    "id": "4ad8a1b8-dbab-4c48-982c-c659300ccd89",
+    "name": "jdf",
+    "avatar": null,
+    "created_by": "AnilMagar",
+    "admins": [
+      "AnilMagar"
+    ],
+    "members": [
+      "AnilMagar",
+      "Ram",
+      "hari",
+      "rana",
+      "sita@gmail.com"
+    ],
+    "created_at": "2026-05-08T10:41:05.561543",
+    "updated_at": "2026-05-08T10:41:05.561543",
+    "last_message": "",
+    "last_message_time": "2026-05-08T10:41:05.561543"
+  },
+  "152e3c97-8798-468c-b55f-8dac5df4dc44": {
+    "id": "152e3c97-8798-468c-b55f-8dac5df4dc44",
+    "name": "jdf",
+    "avatar": null,
+    "created_by": "AnilMagar",
+    "admins": [
+      "AnilMagar"
+    ],
+    "members": [
+      "AnilMagar",
+      "Ram",
+      "hari",
+      "rana",
+      "sita@gmail.com"
+    ],
+    "created_at": "2026-05-08T10:41:07.102179",
+    "updated_at": "2026-05-08T10:41:07.102179",
+    "last_message": "",
+    "last_message_time": "2026-05-08T10:41:07.102179"
+  }
+}
