@@ -10,5 +10,18 @@
       "AnilMagar",
       "Ram"
     ]
+  },
+  "b12f2aa0-2061-4177-a0c3-15b25cd40069": {
+    "id": "b12f2aa0-2061-4177-a0c3-15b25cd40069",
+    "group_id": "156a891d-d0c0-4a3d-84cc-b77c751c5671",
+    "sender": "AnilMagar ",
+    "text": "hi",
+    "message_type": "text",
+    "media_url": null,
+    "thumbnail_url": null,
+    "timestamp": "2026-05-12T16:08:25.623687",
+    "seen_by": [
+      "AnilMagar "
+    ]
   }
 }

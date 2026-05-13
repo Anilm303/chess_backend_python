@@ -1,16 +1,5 @@
 [
   {
-    "id": "851d709f-5c0b-47df-9da9-b3fb51a64220",
-    "username": "AnilMagar ",
-    "media_url": "/uploads/stories/61530091-8a01-4713-a516-b75e2be06851.mp4",
-    "thumbnail_url": null,
-    "media_type": "video",
-    "timestamp": "2026-05-11T10:57:34.565275",
-    "viewers": [],
-    "reactions": {},
-    "reaction_details": {}
-  },
-  {
     "id": "40b7bd6d-4508-44f3-826a-1ac51ee732a2",
     "username": "AnilMagar ",
     "media_url": "/uploads/stories/63b8b90e-9e03-4829-b8bc-a8dd7fb1a269.mp4",
@@ -18,6 +7,42 @@
     "media_type": "video",
     "timestamp": "2026-05-11T16:57:10.579777",
     "viewers": [],
+    "reactions": {},
+    "reaction_details": {}
+  },
+  {
+    "id": "69e650e7-83f3-4a76-b187-16d2bfee4391",
+    "username": "Ram",
+    "media_url": "/uploads/stories/725b72e8-176e-426c-868c-ca2c8745e924.jpg",
+    "thumbnail_url": null,
+    "media_type": "image",
+    "timestamp": "2026-05-12T10:15:20.161631",
+    "viewers": [
+      {
+        "username": "AnilMagar",
+        "timestamp": "2026-05-12T10:15:50.858749"
+      },
+      {
+        "username": "Ram",
+        "timestamp": "2026-05-12T12:10:18.089822"
+      }
+    ],
+    "reactions": {},
+    "reaction_details": {}
+  },
+  {
+    "id": "98770cf8-fa51-4d95-93fc-df1707efb0bb",
+    "username": "AnilMagar",
+    "media_url": "/uploads/stories/b3ea09ee-ab81-4d8d-902c-57cbdb4e35f4.mp4",
+    "thumbnail_url": null,
+    "media_type": "video",
+    "timestamp": "2026-05-12T10:16:18.104640",
+    "viewers": [
+      {
+        "username": "Ram",
+        "timestamp": "2026-05-12T12:06:23.278555"
+      }
+    ],
     "reactions": {},
     "reaction_details": {}
   }

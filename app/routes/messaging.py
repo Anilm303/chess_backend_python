@@ -171,7 +171,8 @@ def send_message():
             return jsonify({'success': False, 'message': text_or_message}), 400
         text = text_or_message
     
-    if message_type in ['image', 'video'] and not media_base64:
+    # For media messages, require either uploaded file bytes or base64 payload
+    if message_type in ['image', 'video'] and not (media_bytes or media_base64):
         return jsonify({'success': False, 'message': f'{message_type} data is required'}), 400
 
     if message_type in ['image', 'video'] and media_base64 is not None:
