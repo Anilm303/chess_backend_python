@@ -78,8 +78,12 @@ def create_app():
             'service': 'chess-backend',
             'status': 'running',
             'message': 'Chess backend is live on Hugging Face Spaces',
-            'health_check': '/api/auth/health',
+            'health_check': '/api/ping',
         }
+
+    @app.route('/ping')
+    def ping():
+        return jsonify({'status': 'ok', 'service': 'chess-backend'}), 200
     
     @app.route('/uploads/<path:filename>')
     def serve_upload(filename):

@@ -29,6 +29,14 @@ call_rooms = {}
 pending_calls = {}
 group_call_rooms = {}
 
+
+def _get_username_by_sid(sid):
+    for username, socket_id in active_connections.items():
+        if socket_id == sid:
+            return username
+    return None
+
+
 @socketio.on('connect')
 def handle_connect():
     """Handle user connection"""
@@ -88,7 +96,7 @@ def handle_new_message(data):
         valid_receiver, receiver_or_message = validate_username(receiver)
         if not valid_sender or not valid_receiver:
             return
-        receiver_socket_id = active_connections.get(receiver)
+        receiver_socket_id = active_connections.get(receiver_or_message)
         if receiver_socket_id:
             payload = {**data, 'sender': sender_or_message, 'receiver': receiver_or_message}
             emit('message_received', payload, to=receiver_socket_id)
@@ -104,12 +112,13 @@ def handle_new_message(data):
                     'status': 'delivered',
                 })
     except Exception as e:
-        print(f"Message error: {e}")
+        print(f"Error handling new_message: {e}")
+
 
 @socketio.on('typing')
 def handle_typing(data):
-    receiver = data.get('receiver')
     sender = data.get('sender')
+    receiver = data.get('receiver')
     is_typing = bool(data.get('is_typing', True))
     valid_receiver, receiver_or_message = validate_username(receiver)
     valid_sender, sender_or_message = validate_username(sender)

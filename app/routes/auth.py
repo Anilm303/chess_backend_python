@@ -90,7 +90,7 @@ def login():
     User.set_online(username)
     
     # Create access token
-    access_token = create_access_token(identity=username)
+    access_token = create_access_token(identity=username_or_message)
     
     return jsonify({
         'success': True,
