@@ -4,6 +4,8 @@ from datetime import datetime, timedelta
 import uuid
 import base64
 
+from app.storage import create_media_filename, store_media_bytes
+
 STORIES_FILE = 'stories.json'
 UPLOADS_FOLDER = 'uploads/stories'
 
@@ -33,27 +35,45 @@ class Story:
         stories = Story._load_stories()
 
         extension = 'mp4' if media_type == 'video' else 'jpg'
-        filename = f"{uuid.uuid4()}.{extension}"
-        filepath = os.path.join(UPLOADS_FOLDER, filename)
+        filename = create_media_filename(extension)
 
         try:
-            with open(filepath, 'wb') as f:
-                f.write(base64.b64decode(media_base64))
-        except Exception as e:
-            print(f"Error saving file: {e}")
+            media_bytes = base64.b64decode(media_base64)
+        except Exception as exception:
+            print(f"Error saving file: {exception}")
+            return None
+
+        try:
+            media_url = store_media_bytes(
+                'stories',
+                filename,
+                media_bytes,
+                content_type='video/mp4' if media_type == 'video' else 'image/jpeg',
+            )
+        except Exception as exception:
+            print(f"Error storing story media: {exception}")
             return None
 
         story_id = str(uuid.uuid4())
-        media_url = f"/uploads/stories/{filename}"
         thumbnail_url = None
 
-        # Generate thumbnail if it's a video
         if media_type == 'video':
-            from app.utils import generate_video_thumbnail
-            thumb_filename = f"{filename.split('.')[0]}_thumb.jpg"
-            thumb_filepath = os.path.join(UPLOADS_FOLDER, thumb_filename)
-            if generate_video_thumbnail(filepath, thumb_filepath):
-                thumbnail_url = f"/uploads/stories/{thumb_filename}"
+            try:
+                from app.utils import generate_video_thumbnail
+
+                thumb_filename = f"{filename.split('.')[0]}_thumb.jpg"
+                thumb_filepath = os.path.join(UPLOADS_FOLDER, thumb_filename)
+                media_filepath = os.path.join(UPLOADS_FOLDER, filename)
+                if generate_video_thumbnail(media_filepath, thumb_filepath):
+                    with open(thumb_filepath, 'rb') as thumb_file:
+                        thumbnail_url = store_media_bytes(
+                            'stories',
+                            thumb_filename,
+                            thumb_file.read(),
+                            content_type='image/jpeg',
+                        )
+            except Exception as exception:
+                print(f"⚠️ Thumbnail generation error (non-blocking): {exception}")
 
         story = {
             'id': story_id,
@@ -62,9 +82,9 @@ class Story:
             'thumbnail_url': thumbnail_url,
             'media_type': media_type,
             'timestamp': datetime.now().isoformat(),
-            'viewers': [],  # [{username: str, timestamp: str}, ...]
-            'reactions': {},  # {username: emoji}
-            'reaction_details': {},  # {username: {emoji: str, timestamp: str}, ...}
+            'viewers': [],
+            'reactions': {},
+            'reaction_details': {},
         }
 
         stories.append(story)
@@ -77,36 +97,43 @@ class Story:
         stories = Story._load_stories()
 
         extension = 'mp4' if media_type == 'video' else 'jpg'
-        filename = f"{uuid.uuid4()}.{extension}"
-        filepath = os.path.join(UPLOADS_FOLDER, filename)
+        filename = create_media_filename(extension)
 
         try:
-            with open(filepath, 'wb') as f:
-                f.write(media_bytes)
-            print(f"✅ Story file saved: {filepath} ({len(media_bytes)} bytes)")
-        except Exception as e:
-            print(f"❌ Error saving file bytes: {e}")
+            media_url = store_media_bytes(
+                'stories',
+                filename,
+                media_bytes,
+                content_type='video/mp4' if media_type == 'video' else 'image/jpeg',
+            )
+        except Exception as exception:
+            print(f"❌ Error storing file bytes: {exception}")
             return None
 
         story_id = str(uuid.uuid4())
-        media_url = f"/uploads/stories/{filename}"
         thumbnail_url = None
 
-        # Generate thumbnail if it's a video (non-blocking - don't fail if thumbnail fails)
         if media_type == 'video':
             try:
                 from app.utils import generate_video_thumbnail
+
                 thumb_filename = f"{filename.split('.')[0]}_thumb.jpg"
                 thumb_filepath = os.path.join(UPLOADS_FOLDER, thumb_filename)
+                media_filepath = os.path.join(UPLOADS_FOLDER, filename)
                 print(f"🎬 Attempting thumbnail generation: {thumb_filepath}")
-                if generate_video_thumbnail(filepath, thumb_filepath):
-                    thumbnail_url = f"/uploads/stories/{thumb_filename}"
-                    print(f"✅ Thumbnail generated successfully")
+                if generate_video_thumbnail(media_filepath, thumb_filepath):
+                    with open(thumb_filepath, 'rb') as thumb_file:
+                        thumbnail_url = store_media_bytes(
+                            'stories',
+                            thumb_filename,
+                            thumb_file.read(),
+                            content_type='image/jpeg',
+                        )
+                    print("✅ Thumbnail generated successfully")
                 else:
-                    print(f"⚠️ Thumbnail generation returned False, continuing without thumbnail")
-            except Exception as e:
-                print(f"⚠️ Thumbnail generation error (non-blocking): {e}")
-                # Don't fail the upload if thumbnail generation fails
+                    print("⚠️ Thumbnail generation returned False, continuing without thumbnail")
+            except Exception as exception:
+                print(f"⚠️ Thumbnail generation error (non-blocking): {exception}")
 
         story = {
             'id': story_id,
@@ -125,8 +152,8 @@ class Story:
             Story._save_stories(stories)
             print(f"✅ Story saved to stories.json: {story_id}")
             return story
-        except Exception as e:
-            print(f"❌ Error saving story to file: {e}")
+        except Exception as exception:
+            print(f"❌ Error saving story to file: {exception}")
             return None
 
     @staticmethod

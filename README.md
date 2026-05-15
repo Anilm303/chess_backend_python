@@ -13,6 +13,8 @@ pinned: false
 
 A Flask-based REST API for the Chess game application, handling user authentication, messaging, notes, stories, and real-time communication.
 
+This repository also contains a legacy FastAPI/Ludo scaffold in a few files, but the active deploy entrypoint for this project is `run.py` with the Flask app in `app/`.
+
 ## Features
 
 - User Registration with validation
@@ -32,11 +34,14 @@ pip install -r requirements.txt
 
 ### Configuration
 
-Update the secret keys in `app/__init__.py` before running in production:
+Update environment variables before running in production:
 
 ```python
-app.config['SECRET_KEY'] = 'your-production-secret-key'
-app.config['JWT_SECRET_KEY'] = 'your-production-jwt-secret-key'
+SECRET_KEY=your-production-secret-key
+JWT_SECRET_KEY=your-production-jwt-secret-key
+ALLOWED_ORIGINS=https://app.yourdomain.com,https://yourdomain.com
+MEDIA_STORAGE=s3
+MEDIA_PUBLIC_BASE_URL=https://cdn.yourdomain.com
 ```
 
 ### Run the API
@@ -45,7 +50,30 @@ app.config['JWT_SECRET_KEY'] = 'your-production-jwt-secret-key'
 python run.py
 ```
 
-The API will be available at `http://localhost:5000`
+The API will be available at `http://localhost:7860`
+
+## Hugging Face Spaces deployment
+
+Use the existing Docker setup in this repository. Do not create the FastAPI sample app from the Hugging Face prompt; this backend is already wired for Flask.
+
+1. Create a new Space with SDK `Docker`.
+2. Push the contents of `chess_backend/` to the Space repo.
+3. Keep the Dockerfile as the entrypoint and let `run.py` start the Flask app.
+4. Set secrets in the Space settings:
+  - `SECRET_KEY`
+  - `JWT_SECRET_KEY`
+  - `ALLOWED_ORIGINS`
+  - any S3 or Redis variables you actually use
+5. The Space should listen on port `7860`.
+6. Your Flutter app should use the Space URL with `/api`, for example:
+
+```bash
+flutter build apk --release --dart-define=API_BASE_URL=https://<your-space>.hf.space/api
+```
+
+## Production deployment
+
+See [DEPLOYMENT.md](DEPLOYMENT.md) for Render and custom-domain setup.
 
 ## API Endpoints
 

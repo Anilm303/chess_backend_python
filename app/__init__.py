@@ -5,9 +5,11 @@ from flask import Flask, jsonify, send_from_directory
 from flask_cors import CORS
 from flask_jwt_extended import JWTManager
 from flask_socketio import SocketIO
+from app.token_store import is_token_revoked, cleanup_blocklist
 
-# Initialize SocketIO globally
-socketio = SocketIO(cors_allowed_origins="*")
+# Initialize SocketIO globally.
+# Use threading mode so the backend runs on Python 3.13 / Windows without eventlet.
+socketio = SocketIO(cors_allowed_origins="*", async_mode="threading")
 
 def create_app():
     """Create and configure Flask application"""
@@ -20,13 +22,22 @@ def create_app():
     app.config['JWT_HEADER_NAME'] = 'Authorization'
     app.config['JWT_HEADER_TYPE'] = 'Bearer'
     app.config['JWT_ACCESS_TOKEN_EXPIRES'] = timedelta(days=30)
+    app.config['JWT_REFRESH_TOKEN_EXPIRES'] = timedelta(days=90)
     app.config['MAX_CONTENT_LENGTH'] = int(os.getenv('MAX_CONTENT_LENGTH', str(100 * 1024 * 1024)))
     
     # Enable CORS for Flutter frontend (including uploads)
-    CORS(app, resources={
-        r"/api/*": {"origins": "*"},
-        r"/uploads/*": {"origins": "*"},
-    })
+    allowed_origins_raw = os.getenv('ALLOWED_ORIGINS', '*')
+    allowed_origins = [
+        origin.strip()
+        for origin in allowed_origins_raw.split(',')
+        if origin.strip()
+    ] or '*'
+    cors_resources = {
+        r"/api/*": {"origins": allowed_origins},
+        r"/uploads/*": {"origins": allowed_origins},
+        r"/socket.io/*": {"origins": allowed_origins},
+    }
+    CORS(app, resources=cors_resources)
     
     # Initialize JWT Manager
     jwt = JWTManager(app)
@@ -46,6 +57,10 @@ def create_app():
     @jwt.revoked_token_loader
     def revoked_token_response(jwt_header, jwt_payload):
         return jsonify({'success': False, 'message': 'Token has been revoked'}), 401
+
+    @jwt.token_in_blocklist_loader
+    def check_if_token_revoked(jwt_header, jwt_payload):
+        return is_token_revoked(jwt_payload.get('jti'))
     
     # Initialize Socket.IO with the app
     socketio.init_app(app)
@@ -53,7 +68,6 @@ def create_app():
     @app.after_request
     def apply_security_headers(response):
         response.headers['X-Content-Type-Options'] = 'nosniff'
-        response.headers['X-Frame-Options'] = 'DENY'
         response.headers['Referrer-Policy'] = 'same-origin'
         response.headers['Permissions-Policy'] = 'camera=(), microphone=(), geolocation=()'
         response.headers['Cache-Control'] = 'no-store'
@@ -77,7 +91,7 @@ def create_app():
         return {
             'service': 'chess-backend',
             'status': 'running',
-            'message': 'Chess backend is live on Hugging Face Spaces',
+            'message': 'Chess backend is live',
             'health_check': '/api/ping',
         }
 
@@ -93,6 +107,7 @@ def create_app():
     # Start background cleanup task
     from app.cleanup import start_cleanup_thread
     start_cleanup_thread()
+    cleanup_blocklist()
 
     # Debug endpoint to inspect socket state (development only)
     @app.route('/debug/socket_state')

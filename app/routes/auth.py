@@ -1,6 +1,14 @@
-from flask import Blueprint, jsonify
-from flask_jwt_extended import create_access_token, jwt_required, get_jwt_identity
+from flask import Blueprint, jsonify, request
+from flask_jwt_extended import (
+    create_access_token,
+    create_refresh_token,
+    decode_token,
+    get_jwt,
+    get_jwt_identity,
+    jwt_required,
+)
 from app.models.user import User
+from app.token_store import revoke_token
 from app.security import (
     rate_limit,
     require_json_body,
@@ -52,12 +60,14 @@ def register():
         return jsonify({'success': False, 'message': result}), 400
     
     # Create access token
-    access_token = create_access_token(identity=username)
+    access_token = create_access_token(identity=username_or_message)
+    refresh_token = create_refresh_token(identity=username)
     
     return jsonify({
         'success': True,
         'message': 'User registered successfully',
         'access_token': access_token,
+        'refresh_token': refresh_token,
         'user': result.to_dict()
     }), 201
 
@@ -91,12 +101,31 @@ def login():
     
     # Create access token
     access_token = create_access_token(identity=username_or_message)
+    refresh_token = create_refresh_token(identity=username_or_message)
     
     return jsonify({
         'success': True,
         'message': 'Login successful',
         'access_token': access_token,
+        'refresh_token': refresh_token,
         'user': result.to_dict()
+    }), 200
+
+@auth_bp.route('/refresh', methods=['POST'])
+@jwt_required(refresh=True)
+def refresh_token():
+    """Exchange a refresh token for a new access token"""
+    username = get_jwt_identity()
+    user = User.get_by_username(username)
+    if not user:
+        return jsonify({'success': False, 'message': 'User not found'}), 404
+
+    access_token = create_access_token(identity=username)
+    return jsonify({
+        'success': True,
+        'message': 'Token refreshed successfully',
+        'access_token': access_token,
+        'user': user.to_dict(),
     }), 200
 
 @auth_bp.route('/validate-token', methods=['GET'])
@@ -120,6 +149,21 @@ def logout():
     """Logout user and mark as offline"""
     username = get_jwt_identity()
     User.set_offline(username)
+    jwt_payload = get_jwt()
+    revoke_token(jwt_payload.get('jti'), token_type=jwt_payload.get('type', 'access'))
+
+    data = None
+    try:
+        data = request.get_json(silent=True) or {}
+    except Exception:
+        data = {}
+    refresh_token_value = data.get('refresh_token') if isinstance(data, dict) else None
+    if refresh_token_value:
+        try:
+            decoded_refresh = decode_token(refresh_token_value)
+            revoke_token(decoded_refresh.get('jti'), token_type=decoded_refresh.get('type', 'refresh'))
+        except Exception:
+            pass
     
     return jsonify({
         'success': True,

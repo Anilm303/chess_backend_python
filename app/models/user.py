@@ -167,7 +167,7 @@ class User:
         if username in users:
             return users[username].get('fcm_token')
         return None
-
+    
     @staticmethod
     def set_online(username, socket_id=None):
         """Mark user as online"""

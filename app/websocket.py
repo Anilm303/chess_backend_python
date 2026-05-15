@@ -246,8 +246,6 @@ def handle_call_user(data):
         _send_fcm_notification(callee_or_message, {**data, 'caller_username': caller_or_message, 'callee_username': callee_or_message})
         
         if not sent_socket and caller_username:
-            # If socket failed, we still want to notify the caller it's ringing (via FCM)
-            # but we don't send missed_call immediately
             pass
 
 @socketio.on('call_add_participant')

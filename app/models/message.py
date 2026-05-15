@@ -4,6 +4,8 @@ from datetime import datetime
 import uuid
 import base64
 
+from app.storage import create_media_filename, store_media_bytes
+
 MESSAGES_FILE = 'messages.json'
 UPLOADS_FOLDER = 'uploads/messages'
 
@@ -95,20 +97,19 @@ class Message:
             if not media_base64:
                 return False, f'{message_type} data required'
             extension = 'mp4' if message_type == 'video' else 'jpg'
-            filename = f"{uuid.uuid4()}.{extension}"
-            filepath = os.path.join(UPLOADS_FOLDER, filename)
+            filename = create_media_filename(extension)
             try:
-                with open(filepath, 'wb') as f:
-                    f.write(base64.b64decode(media_base64))
-                media_url = f"/uploads/messages/{filename}"
+                media_bytes = base64.b64decode(media_base64)
+                media_url = store_media_bytes('messages', filename, media_bytes, content_type='video/mp4' if message_type == 'video' else 'image/jpeg')
 
                 # Generate thumbnail if it's a video
                 if message_type == 'video':
                     from app.utils import generate_video_thumbnail
                     thumb_filename = f"{filename.split('.')[0]}_thumb.jpg"
                     thumb_filepath = os.path.join(UPLOADS_FOLDER, thumb_filename)
-                    if generate_video_thumbnail(filepath, thumb_filepath):
-                        thumbnail_url = f"/uploads/messages/{thumb_filename}"
+                    if generate_video_thumbnail(os.path.join(UPLOADS_FOLDER, filename), thumb_filepath):
+                        with open(thumb_filepath, 'rb') as thumb_file:
+                            thumbnail_url = store_media_bytes('messages', thumb_filename, thumb_file.read(), content_type='image/jpeg')
             except Exception as e:
                 print(f"Error saving file: {e}")
                 return False, 'Failed to save media file'
@@ -151,19 +152,17 @@ class Message:
             if not media_bytes:
                 return False, f'{message_type} data required'
             extension = 'mp4' if message_type == 'video' else 'jpg'
-            filename = f"{uuid.uuid4()}.{extension}"
-            filepath = os.path.join(UPLOADS_FOLDER, filename)
+            filename = create_media_filename(extension)
             try:
-                with open(filepath, 'wb') as f:
-                    f.write(media_bytes)
-                media_url = f"/uploads/messages/{filename}"
+                media_url = store_media_bytes('messages', filename, media_bytes, content_type='video/mp4' if message_type == 'video' else 'image/jpeg')
 
                 if message_type == 'video':
                     from app.utils import generate_video_thumbnail
                     thumb_filename = f"{filename.split('.')[0]}_thumb.jpg"
                     thumb_filepath = os.path.join(UPLOADS_FOLDER, thumb_filename)
-                    if generate_video_thumbnail(filepath, thumb_filepath):
-                        thumbnail_url = f"/uploads/messages/{thumb_filename}"
+                    if generate_video_thumbnail(os.path.join(UPLOADS_FOLDER, filename), thumb_filepath):
+                        with open(thumb_filepath, 'rb') as thumb_file:
+                            thumbnail_url = store_media_bytes('messages', thumb_filename, thumb_file.read(), content_type='image/jpeg')
             except Exception as e:
                 print(f"Error saving file: {e}")
                 return False, 'Failed to save media file'

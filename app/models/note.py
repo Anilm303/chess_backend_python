@@ -4,6 +4,8 @@ import os
 import uuid
 from datetime import datetime, timedelta
 
+from app.storage import create_media_filename, store_media_bytes
+
 NOTES_FILE = 'notes.json'
 UPLOADS_FOLDER = 'uploads/notes'
 
@@ -44,21 +46,20 @@ class Note:
                 return None
 
             extension = 'mp4' if media_type == 'video' else 'jpg'
-            filename = f"{uuid.uuid4()}.{extension}"
-            filepath = os.path.join(UPLOADS_FOLDER, filename)
+            filename = create_media_filename(extension)
 
             try:
-                with open(filepath, 'wb') as file_handle:
-                    file_handle.write(base64.b64decode(media_base64))
-                media_url = f"/uploads/notes/{filename}"
+                media_bytes = base64.b64decode(media_base64)
+                media_url = store_media_bytes('notes', filename, media_bytes, content_type='video/mp4' if media_type == 'video' else 'image/jpeg')
 
                 if media_type == 'video':
                     from app.utils import generate_video_thumbnail
 
                     thumb_filename = f"{filename.split('.')[0]}_thumb.jpg"
                     thumb_filepath = os.path.join(UPLOADS_FOLDER, thumb_filename)
-                    if generate_video_thumbnail(filepath, thumb_filepath):
-                        thumbnail_url = f"/uploads/notes/{thumb_filename}"
+                    if generate_video_thumbnail(os.path.join(UPLOADS_FOLDER, filename), thumb_filepath):
+                        with open(thumb_filepath, 'rb') as thumb_file:
+                            thumbnail_url = store_media_bytes('notes', thumb_filename, thumb_file.read(), content_type='image/jpeg')
             except Exception as exception:
                 print(f"Error saving note media: {exception}")
                 return None
