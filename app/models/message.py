@@ -6,10 +6,23 @@ import base64
 
 from app.storage import create_media_filename, store_media_bytes
 
-MESSAGES_FILE = 'messages.json'
-UPLOADS_FOLDER = 'uploads/messages'
+DATA_ROOT = os.getenv('DATA_ROOT', '').strip()
+
+
+def _default_data_path(filename):
+    return os.path.join(DATA_ROOT, filename) if DATA_ROOT else filename
+
+
+MESSAGES_FILE = os.getenv('MESSAGES_FILE', _default_data_path('messages.json'))
+UPLOADS_FOLDER = os.getenv('MESSAGE_UPLOADS_FOLDER', _default_data_path('uploads/messages'))
 
 os.makedirs(UPLOADS_FOLDER, exist_ok=True)
+
+
+def _ensure_parent_dir(path):
+    directory = os.path.dirname(path)
+    if directory:
+        os.makedirs(directory, exist_ok=True)
 
 
 def _normalize_timestamp(value=None):
@@ -34,6 +47,7 @@ def get_messages():
 
 def save_messages(messages):
     """Save messages to JSON file"""
+    _ensure_parent_dir(MESSAGES_FILE)
     with open(MESSAGES_FILE, 'w') as f:
         json.dump(messages, f, indent=2)
 

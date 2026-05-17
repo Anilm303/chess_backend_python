@@ -18,4 +18,5 @@ websockets==12.0
 redis==5.0.1
 python-jose[cryptography]==3.3.0
 passlib[bcrypt]==1.7.4
+huggingface_hub>=0.18.0
 

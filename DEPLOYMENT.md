@@ -34,7 +34,7 @@ This backend is ready for a permanent public URL using Render or a VPS.
 - Use that URL in Flutter:
 
 ```bash
-flutter build apk --release --dart-define=API_BASE_URL=https://api.yourdomain.com/api --dart-define=SOCKET_BASE_URL=https://api.yourdomain.com
+flutter build web --release --dart-define=API_BASE_URL=https://api.yourdomain.com/api --dart-define=SOCKET_BASE_URL=https://api.yourdomain.com
 ```
 
 ## Media storage

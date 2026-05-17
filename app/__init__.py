@@ -5,7 +5,7 @@ from flask import Flask, jsonify, send_from_directory
 from flask_cors import CORS
 from flask_jwt_extended import JWTManager
 from flask_socketio import SocketIO
-from app.token_store import is_token_revoked, cleanup_blocklist
+from app.token_store import is_token_revoked, cleanup_blocklist, clear_blocklist
 
 # Initialize SocketIO globally.
 # Use threading mode so the backend runs on Python 3.13 / Windows without eventlet.
@@ -107,7 +107,33 @@ def create_app():
     # Start background cleanup task
     from app.cleanup import start_cleanup_thread
     start_cleanup_thread()
-    cleanup_blocklist()
+    # Optionally clear auth/token state on startup if requested by the environment.
+    # Useful when deploying to a fresh environment and you want to avoid reusing
+    # previously persisted token blocklists across deployments (e.g. HF Spaces).
+    if os.getenv('RESET_AUTH_DATA', '0') == '1' or os.getenv('CLEAR_TOKEN_BLOCKLIST_ON_STARTUP', '0') == '1':
+        try:
+            clear_blocklist()
+            app.logger.info('Auth token blocklist cleared on startup due to env flag.')
+        except Exception:
+            app.logger.exception('Failed to clear token blocklist on startup')
+    # Always attempt to clean up expired entries in the blocklist (if present)
+    try:
+        cleanup_blocklist()
+    except Exception:
+        app.logger.exception('Failed to cleanup token blocklist')
+
+    # Initialize HF sync if configured (download users.json into local DATA_ROOT)
+    try:
+        from app.models.user import USERS_FILE
+        from app import hf_sync  # type: ignore
+        hf_sync.initialize(USERS_FILE)
+        app.logger.info('HF sync initialization attempted')
+    except Exception:
+        app.logger.exception('HF sync initialization failed')
+
+    # Warn if JWT secret uses default value (encourage setting env var)
+    if os.getenv('JWT_SECRET_KEY') is None:
+        app.logger.warning('JWT_SECRET_KEY not explicitly set; using default from config.')
 
     # Debug endpoint to inspect socket state (development only)
     @app.route('/debug/socket_state')

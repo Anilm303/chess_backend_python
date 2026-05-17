@@ -61,7 +61,7 @@ def register():
     
     # Create access token
     access_token = create_access_token(identity=username_or_message)
-    refresh_token = create_refresh_token(identity=username)
+    refresh_token = create_refresh_token(identity=username_or_message)
     
     return jsonify({
         'success': True,
@@ -97,7 +97,7 @@ def login():
         return jsonify({'success': False, 'message': result}), 401
     
     # Mark user as online
-    User.set_online(username)
+    User.set_online(username_or_message)
     
     # Create access token
     access_token = create_access_token(identity=username_or_message)
@@ -165,6 +165,21 @@ def logout():
         except Exception:
             pass
     
+    # If user has an active socket connection, attempt to disconnect it so
+    # revoked tokens cannot be used to stay connected.
+    try:
+        from app import socketio
+        from app import websocket as ws_handlers
+        sid = ws_handlers.active_connections.get(username)
+        if sid:
+            try:
+                socketio.disconnect(sid)
+            except Exception:
+                # best-effort only
+                pass
+    except Exception:
+        pass
+
     return jsonify({
         'success': True,
         'message': 'Logout successful'

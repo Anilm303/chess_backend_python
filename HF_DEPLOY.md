@@ -20,6 +20,8 @@ Required files:
 - `requirements.txt`
 - `app/` and other backend files
 
+If you are using the Hugging Face Files UI instead of git, upload the same files/folders directly to the Space root.
+
 ## 3) Runtime environment variables (recommended)
 
 In Space Settings -> Variables, set:
@@ -27,6 +29,11 @@ In Space Settings -> Variables, set:
 - `SECRET_KEY`: your strong secret
 - `JWT_SECRET_KEY`: your strong JWT secret
 - `FLASK_DEBUG`: `false`
+
+Optional variables for session/token handling:
+
+- `TOKEN_BLOCKLIST_PATH`: set to `/tmp/token_blocklist.json` to avoid persisting revoked tokens across Space rebuilds.
+- `RESET_AUTH_DATA`: set to `1` to clear the token blocklist on startup (useful after migrating or when you want to invalidate all previous sessions).
 
 Note: `run.py` already supports `PORT` for Hugging Face and falls back to `FLASK_PORT`.
 
@@ -53,6 +60,12 @@ Use this API base URL in Flutter:
 
 You can set it in app UI from Login/Register screen backend URL dialog,
 or via `--dart-define=API_BASE_URL=...` during build.
+
+For Flutter web builds, also pass:
+
+```bash
+--dart-define=SOCKET_BASE_URL=...
+```
 
 ## Important note
 

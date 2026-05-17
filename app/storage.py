@@ -2,7 +2,10 @@ import io
 import os
 from uuid import uuid4
 
-UPLOAD_ROOT = 'uploads'
+DATA_ROOT = os.getenv('DATA_ROOT', '').strip()
+UPLOAD_ROOT = os.getenv('UPLOAD_ROOT', '').strip() or (
+    os.path.join(DATA_ROOT, 'uploads') if DATA_ROOT else 'uploads'
+)
 
 
 def _storage_mode():

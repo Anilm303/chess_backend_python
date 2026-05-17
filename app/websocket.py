@@ -1,6 +1,7 @@
 from flask_socketio import emit, join_room
 from flask import request
 from flask_jwt_extended import decode_token
+from app.token_store import is_token_revoked
 from app.models.user import User
 from app.models.message import Message
 from app.models.group import GroupChat
@@ -44,6 +45,10 @@ def handle_connect():
         token = request.args.get('token')
         if token:
             decoded_token = decode_token(token)
+            jti = decoded_token.get('jti')
+            if is_token_revoked(jti):
+                print(f"Rejected socket connect: token revoked (jti={jti})")
+                return
             username = decoded_token['sub']
             User.set_online(username, request.sid)
             active_connections[username] = request.sid

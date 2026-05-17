@@ -4,14 +4,16 @@ import threading
 from datetime import datetime
 
 TOKEN_BLOCKLIST_FILE = 'token_blocklist.json'
+# Allow configuring the blocklist path via env so deployments can opt to keep it ephemeral
+_BLOCKLIST_PATH = os.getenv('TOKEN_BLOCKLIST_PATH', TOKEN_BLOCKLIST_FILE)
 _TOKEN_LOCK = threading.Lock()
 
 
 def _load_blocklist():
-    if not os.path.exists(TOKEN_BLOCKLIST_FILE):
+    if not os.path.exists(_BLOCKLIST_PATH):
         return []
     try:
-        with open(TOKEN_BLOCKLIST_FILE, 'r', encoding='utf-8') as file_handle:
+        with open(_BLOCKLIST_PATH, 'r', encoding='utf-8') as file_handle:
             data = json.load(file_handle)
             return data if isinstance(data, list) else []
     except Exception:
@@ -19,7 +21,14 @@ def _load_blocklist():
 
 
 def _save_blocklist(items):
-    with open(TOKEN_BLOCKLIST_FILE, 'w', encoding='utf-8') as file_handle:
+    # Ensure directory exists
+    directory = os.path.dirname(_BLOCKLIST_PATH)
+    if directory and not os.path.exists(directory):
+        try:
+            os.makedirs(directory, exist_ok=True)
+        except Exception:
+            pass
+    with open(_BLOCKLIST_PATH, 'w', encoding='utf-8') as file_handle:
         json.dump(items, file_handle, indent=2)
 
 
@@ -65,3 +74,16 @@ def cleanup_blocklist():
             except Exception:
                 kept.append(item)
         _save_blocklist(kept)
+
+
+def clear_blocklist():
+    """Remove the persistent blocklist file entirely.
+
+    Useful for deployment scripts that want to reset authentication state.
+    """
+    with _TOKEN_LOCK:
+        try:
+            if os.path.exists(_BLOCKLIST_PATH):
+                os.remove(_BLOCKLIST_PATH)
+        except Exception:
+            pass

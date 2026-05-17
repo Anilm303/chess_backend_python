@@ -4,12 +4,25 @@ import os
 import uuid
 from datetime import datetime
 
-GROUPS_FILE = 'groups.json'
-GROUP_MESSAGES_FILE = 'group_messages.json'
-CALL_HISTORY_FILE = 'group_call_history.json'
-UPLOADS_FOLDER = os.path.join('uploads', 'messages')
+GROUPS_FILE = os.getenv('GROUPS_FILE', 'groups.json')
+GROUP_MESSAGES_FILE = os.getenv('GROUP_MESSAGES_FILE', 'group_messages.json')
+DATA_ROOT = os.getenv('DATA_ROOT', '').strip()
 
-os.makedirs(UPLOADS_FOLDER, exist_ok=True)
+
+def _default_data_path(filename):
+    return os.path.join(DATA_ROOT, filename) if DATA_ROOT else filename
+
+
+GROUPS_FILE = os.getenv('GROUPS_FILE', _default_data_path('groups.json'))
+GROUP_MESSAGES_FILE = os.getenv('GROUP_MESSAGES_FILE', _default_data_path('group_messages.json'))
+GROUP_CALL_HISTORY_FILE = os.getenv('GROUP_CALL_HISTORY_FILE', _default_data_path('group_call_history.json'))
+UPLOADS_FOLDER = os.getenv('GROUP_UPLOADS_FOLDER', _default_data_path(os.path.join('uploads', 'messages')))
+
+
+def _ensure_parent_dir(path):
+    directory = os.path.dirname(path)
+    if directory:
+        os.makedirs(directory, exist_ok=True)
 
 
 def _load_json(path, default):
@@ -20,6 +33,7 @@ def _load_json(path, default):
 
 
 def _save_json(path, data):
+    _ensure_parent_dir(path)
     with open(path, 'w', encoding='utf-8') as file:
         json.dump(data, file, indent=2)
 

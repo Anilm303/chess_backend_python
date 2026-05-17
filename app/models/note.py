@@ -6,10 +6,23 @@ from datetime import datetime, timedelta
 
 from app.storage import create_media_filename, store_media_bytes
 
-NOTES_FILE = 'notes.json'
-UPLOADS_FOLDER = 'uploads/notes'
+DATA_ROOT = os.getenv('DATA_ROOT', '').strip()
+
+
+def _default_data_path(filename):
+    return os.path.join(DATA_ROOT, filename) if DATA_ROOT else filename
+
+
+NOTES_FILE = os.getenv('NOTES_FILE', _default_data_path('notes.json'))
+UPLOADS_FOLDER = os.getenv('NOTE_UPLOADS_FOLDER', _default_data_path('uploads/notes'))
 
 os.makedirs(UPLOADS_FOLDER, exist_ok=True)
+
+
+def _ensure_parent_dir(path):
+    directory = os.path.dirname(path)
+    if directory:
+        os.makedirs(directory, exist_ok=True)
 
 
 class Note:
@@ -25,6 +38,7 @@ class Note:
 
     @staticmethod
     def _save_notes(notes):
+        _ensure_parent_dir(NOTES_FILE)
         with open(NOTES_FILE, 'w') as file_handle:
             json.dump(notes, file_handle, indent=2)
 

@@ -68,8 +68,17 @@ Use the existing Docker setup in this repository. Do not create the FastAPI samp
 6. Your Flutter app should use the Space URL with `/api`, for example:
 
 ```bash
-flutter build apk --release --dart-define=API_BASE_URL=https://<your-space>.hf.space/api
+flutter build web --release --dart-define=API_BASE_URL=https://<your-space>.hf.space/api --dart-define=SOCKET_BASE_URL=https://<your-space>.hf.space
 ```
+
+If you are uploading files manually in the Hugging Face web UI, upload the contents of this folder to the Space root and keep these files at the repository root:
+
+- `Dockerfile`
+- `run.py`
+- `requirements.txt`
+- `app/`
+
+Then open `Logs` and confirm the app starts on port `7860`.
 
 ## Production deployment
 

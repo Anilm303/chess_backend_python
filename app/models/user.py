@@ -4,8 +4,21 @@ from datetime import datetime
 from werkzeug.security import generate_password_hash, check_password_hash
 
 # Simple in-memory user storage (replace with database in production)
-USERS_FILE = 'users.json'
+DATA_ROOT = os.getenv('DATA_ROOT', '').strip()
+
+
+def _default_data_path(filename):
+    return os.path.join(DATA_ROOT, filename) if DATA_ROOT else filename
+
+
+USERS_FILE = os.getenv('USERS_FILE', _default_data_path('users.json'))
 ONLINE_USERS = {}  # Track online users and their socket IDs
+
+
+def _ensure_parent_dir(path):
+    directory = os.path.dirname(path)
+    if directory:
+        os.makedirs(directory, exist_ok=True)
 
 def get_users():
     """Load users from JSON file"""
@@ -16,8 +29,25 @@ def get_users():
 
 def save_users(users):
     """Save users to JSON file"""
-    with open(USERS_FILE, 'w') as f:
+    _ensure_parent_dir(USERS_FILE)
+    # Write atomically to avoid corruption
+    tmp_path = USERS_FILE + '.tmp'
+    with open(tmp_path, 'w') as f:
         json.dump(users, f, indent=2)
+    os.replace(tmp_path, USERS_FILE)
+
+    # Trigger background upload to Hugging Face (if configured)
+    try:
+        # import here to avoid circular import at module load
+        from app import hf_sync  # type: ignore
+        hf_sync.upload_users_async(USERS_FILE, commit_message='Update users.json from backend')
+    except Exception:
+        # Log but do not raise from model save
+        try:
+            import logging
+            logging.getLogger(__name__).exception('HF upload trigger failed')
+        except Exception:
+            pass
 
 class User:
     """User model with profile support"""

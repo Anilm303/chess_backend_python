@@ -6,10 +6,23 @@ import base64
 
 from app.storage import create_media_filename, store_media_bytes
 
-STORIES_FILE = 'stories.json'
-UPLOADS_FOLDER = 'uploads/stories'
+DATA_ROOT = os.getenv('DATA_ROOT', '').strip()
+
+
+def _default_data_path(filename):
+    return os.path.join(DATA_ROOT, filename) if DATA_ROOT else filename
+
+
+STORIES_FILE = os.getenv('STORIES_FILE', _default_data_path('stories.json'))
+UPLOADS_FOLDER = os.getenv('STORY_UPLOADS_FOLDER', _default_data_path('uploads/stories'))
 
 os.makedirs(UPLOADS_FOLDER, exist_ok=True)
+
+
+def _ensure_parent_dir(path):
+    directory = os.path.dirname(path)
+    if directory:
+        os.makedirs(directory, exist_ok=True)
 
 
 class Story:
@@ -27,6 +40,7 @@ class Story:
 
     @staticmethod
     def _save_stories(stories):
+        _ensure_parent_dir(STORIES_FILE)
         with open(STORIES_FILE, 'w') as f:
             json.dump(stories, f, indent=2)
 
