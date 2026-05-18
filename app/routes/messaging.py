@@ -2,7 +2,7 @@ from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from app.models.message import Message
 from app.models.group import GroupChat
-from app.models.user import User
+from app.models.user import User, save_users
 from app.security import (
     rate_limit,
     require_json_body,
@@ -206,7 +206,27 @@ def send_message():
     try:
         from app.websocket import _emit_to_username
         message_payload = result.to_dict()
-        delivered = _emit_to_username(receiver, 'message_received', message_payload)
+        # If sender and receiver are friends, deliver normally. Otherwise treat as message request.
+        users = User.get_all_users()
+        sender_friends = set(users.get(sender, {}).get('friends', []))
+        if receiver_or_message in sender_friends:
+            delivered = _emit_to_username(receiver, 'message_received', message_payload)
+        else:
+            # mark as request
+            from app.models.message import get_messages, save_messages
+            messages = get_messages()
+            if hasattr(result, 'id') and result.id in messages:
+                messages[result.id]['status'] = 'request'
+                save_messages(messages)
+            # notify recipient of incoming message request
+            delivered = _emit_to_username(receiver, 'message_request', message_payload)
+        # If socket not delivered, send FCM fallback
+        if not delivered:
+            try:
+                from app.websocket import _send_fcm_notification
+                _send_fcm_notification(receiver, message_payload)
+            except Exception:
+                pass
         if delivered:
             Message.mark_as_delivered(result.id)
             _emit_to_username(sender, 'message_delivered', {
@@ -243,12 +263,26 @@ def get_conversation(username):
     if not User.get_by_username(username_or_message):
         return jsonify({'success': False, 'message': f'User {username_or_message} not found'}), 404
     
-    # Get conversation
+    # Pagination support
+    try:
+        limit = int(request.args.get('limit', 50))
+        offset = int(request.args.get('offset', 0))
+    except Exception:
+        limit = 50
+        offset = 0
+
+    # Get conversation (with pagination)
     messages = Message.get_conversation(current_user, username_or_message)
+    # Apply offset/limit on server side (data is small file-backed)
+    total = len(messages)
+    sliced = messages[offset:offset + limit]
     
     return jsonify({
         'success': True,
-        'messages': messages
+        'messages': sliced,
+        'total': total,
+        'offset': offset,
+        'limit': limit,
     }), 200
 
 @messaging_bp.route('/conversations', methods=['GET'])
@@ -338,6 +372,87 @@ def mark_conversation_read(username):
         except Exception as e:
             print(f'Error emitting conversation message_seen socket event: {e}')
     return jsonify({'success': True, 'message': 'Conversation marked as read'}), 200
+
+
+@messaging_bp.route('/request/respond', methods=['POST'])
+@jwt_required()
+def respond_message_request():
+    """Accept or decline a pending message request from another user
+    Body: { "username": "requester", "accept": true }
+    """
+    current = get_jwt_identity()
+    data, err = require_json_body()
+    if err:
+        return err
+    requester = (data.get('username') or '').strip()
+    accept = bool(data.get('accept', False))
+    valid, val_or_msg = validate_username(requester)
+    if not valid:
+        return jsonify({'success': False, 'message': val_or_msg}), 400
+
+    users = User.get_all_users()
+    if current not in users or requester not in users:
+        return jsonify({'success': False, 'message': 'User not found'}), 404
+
+    # Find pending request messages
+    from app.models.message import get_messages, save_messages
+    messages = get_messages()
+    pending = [m for m in messages.values() if m.get('sender') == requester and m.get('receiver') == current and m.get('status') == 'request']
+
+    # If accepted, add to friends (mutual)
+    if accept:
+        current_user = users[current]
+        requester_user = users[requester]
+        cur_friends = set(current_user.get('friends', []))
+        req_friends = set(requester_user.get('friends', []))
+        cur_friends.add(requester)
+        req_friends.add(current)
+        current_user['friends'] = sorted(list(cur_friends))
+        requester_user['friends'] = sorted(list(req_friends))
+        users[current] = current_user
+        users[requester] = requester_user
+        save_users(users)
+
+        # Deliver pending request messages now
+        delivered_ids = []
+        for mid, m in list(messages.items()):
+            if m.get('sender') == requester and m.get('receiver') == current and m.get('status') == 'request':
+                messages[mid]['status'] = 'delivered'
+                delivered_ids.append(mid)
+        if delivered_ids:
+            save_messages(messages)
+            try:
+                from app.websocket import _emit_to_username
+                # emit delivered messages to recipient (current) and notify sender
+                for mid in delivered_ids:
+                    _emit_to_username(current, 'message_received', messages[mid])
+                _emit_to_username(requester, 'message_request_accepted', {
+                    'by': current,
+                    'message_ids': delivered_ids,
+                })
+            except Exception as e:
+                print(f'Error emitting request-accept events: {e}')
+
+        return jsonify({'success': True, 'accepted': True, 'delivered_count': len(delivered_ids)}), 200
+
+    # Declined: notify requester and mark requests as declined
+    declined_ids = []
+    for mid, m in list(messages.items()):
+        if m.get('sender') == requester and m.get('receiver') == current and m.get('status') == 'request':
+            messages[mid]['status'] = 'declined'
+            declined_ids.append(mid)
+    if declined_ids:
+        save_messages(messages)
+        try:
+            from app.websocket import _emit_to_username
+            _emit_to_username(requester, 'message_request_declined', {
+                'by': current,
+                'message_ids': declined_ids,
+            })
+        except Exception as e:
+            print(f'Error emitting request-decline events: {e}')
+
+    return jsonify({'success': True, 'accepted': False, 'declined_count': len(declined_ids)}), 200
 
 @messaging_bp.route('/online-status', methods=['GET'])
 @jwt_required()

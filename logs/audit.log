@@ -1,0 +1,7 @@
+{"ts": "2026-05-17T11:33:05.345959Z", "type": "room_created", "payload": {"roomId": "24300920", "creator": "c", "maxPlayers": 4}}
+{"ts": "2026-05-17T11:33:05.349818Z", "type": "bot_added", "payload": {"roomId": "24300920", "botId": "bot_1779017585348", "botName": "AI"}}
+{"ts": "2026-05-17T11:39:43.916590Z", "type": "room_created", "payload": {"roomId": "84248AE6", "creator": "c", "maxPlayers": 4}}
+{"ts": "2026-05-17T11:39:43.917779Z", "type": "bot_added", "payload": {"roomId": "84248AE6", "botId": "bot_1779017983917", "botName": "AI"}}
+{"ts": "2026-05-17T11:39:43.918728Z", "type": "room_created", "payload": {"roomId": "C381E302", "creator": "u3", "maxPlayers": 4}}
+{"ts": "2026-05-17T11:39:43.919991Z", "type": "room_deleted", "payload": {"roomId": "C381E302", "by": "u3"}}
+{"ts": "2026-05-17T11:51:57.444660Z", "type": "room_created", "payload": {"roomId": "959BA4B4", "creator": "c", "maxPlayers": 4}}

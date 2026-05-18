@@ -9,6 +9,9 @@ from app.security import validate_message_text, validate_username
 import os
 import firebase_admin
 from firebase_admin import credentials, messaging
+import threading
+import time
+from datetime import datetime
 
 # Import socketio instance from __init__.py
 from app import socketio
@@ -28,7 +31,11 @@ except Exception as e:
 active_connections = {}
 call_rooms = {}
 pending_calls = {}
+pending_call_timeouts = {}
+CALL_RING_TIMEOUT = 30  # seconds to wait for answer before cleanup
 group_call_rooms = {}
+_SOCKET_RATE_LIMIT = {}
+_SOCKET_RATE_LOCK = threading.Lock()
 
 
 def _get_username_by_sid(sid):
@@ -36,6 +43,22 @@ def _get_username_by_sid(sid):
         if socket_id == sid:
             return username
     return None
+
+
+def _check_socket_rate_limit(sid, event, limit=10, window_seconds=1):
+    """Simple per-sid per-event in-memory rate limiter for socket events."""
+    now = time.time()
+    key = f"{sid}:{event}"
+    with _SOCKET_RATE_LOCK:
+        entry = _SOCKET_RATE_LIMIT.get(key)
+        if not entry or now - entry['start'] >= window_seconds:
+            _SOCKET_RATE_LIMIT[key] = {'start': now, 'count': 1}
+            return True
+        if entry['count'] >= limit:
+            entry['count'] += 1
+            return False
+        entry['count'] += 1
+        return True
 
 
 @socketio.on('connect')
@@ -94,6 +117,10 @@ def handle_disconnect():
 
 @socketio.on('new_message')
 def handle_new_message(data):
+    # Rate-limit message events per-socket to avoid floods
+    if not _check_socket_rate_limit(request.sid, 'new_message', limit=5, window_seconds=1):
+        print(f"Dropping new_message from sid {request.sid} due to rate limit")
+        return
     try:
         sender = data.get('sender')
         receiver = data.get('receiver')
@@ -122,6 +149,9 @@ def handle_new_message(data):
 
 @socketio.on('typing')
 def handle_typing(data):
+    # Basic rate-limit for typing events
+    if not _check_socket_rate_limit(request.sid, 'typing', limit=8, window_seconds=1):
+        return
     sender = data.get('sender')
     receiver = data.get('receiver')
     is_typing = bool(data.get('is_typing', True))
@@ -141,6 +171,57 @@ def handle_typing(data):
             },
             to=receiver_socket_id,
         )
+
+
+@socketio.on('message_ack')
+def handle_message_ack(data):
+    """Client acknowledges message receipt — mark delivered if needed."""
+    try:
+        message_ids = data.get('message_ids', [])
+        ack_username = data.get('username')
+        if not isinstance(message_ids, list) or not ack_username:
+            return
+        valid_user, user_or_msg = validate_username(ack_username)
+        if not valid_user:
+            return
+        delivered = []
+        for mid in message_ids:
+            msg = Message.mark_as_delivered(mid)
+            if msg:
+                delivered.append(mid)
+        if delivered:
+            # notify sender(s) that these messages were delivered
+            for mid in delivered:
+                msg = Message.get_messages().get(mid) if hasattr(Message, 'get_messages') else None
+            # Optionally emit a summary ack back to the client
+            emit('message_ack_received', {'message_ids': delivered}, to=request.sid)
+    except Exception as e:
+        print(f"Error handling message_ack: {e}")
+
+
+@socketio.on('heartbeat')
+def handle_heartbeat(data):
+    """Heartbeat from client to update last_seen without changing call state."""
+    try:
+        username = data.get('username')
+        if not username:
+            return
+        valid_user, user_or_msg = validate_username(username)
+        if not valid_user:
+            return
+        # update last_seen timestamp without toggling online status
+        try:
+            User.set_online(user_or_msg, request.sid)
+        except Exception:
+            # fallback: update last_seen field directly
+            users = User.get_all_users()
+            if username in users:
+                users[username]['last_seen'] = datetime.utcnow().isoformat()
+                from app.models.user import save_users
+                save_users(users)
+        emit('heartbeat_ack', {'timestamp': datetime.utcnow().isoformat()}, to=request.sid)
+    except Exception as e:
+        print(f"Heartbeat error: {e}")
 
 
 @socketio.on('group_typing')
@@ -174,6 +255,47 @@ def _emit_to_username(username, event, payload):
         print(f"Target user {username} not found in active_connections. Current active: {list(active_connections.keys())}")
         return False
 
+
+def _cleanup_pending_call(call_id, reason='timeout'):
+    """Clean up a pending call and notify parties."""
+    try:
+        call_data = pending_calls.pop(call_id, None)
+        # Cancel and remove any timeout timer
+        timeout = pending_call_timeouts.pop(call_id, None)
+        try:
+            if timeout:
+                timeout.cancel()
+        except Exception:
+            pass
+
+        if not call_data:
+            return
+
+        caller = call_data.get('caller_username')
+        callee = call_data.get('callee_username')
+        room_id = call_data.get('room_id')
+
+        print(f'📞 Call {call_id} cleaned up: {reason}')
+
+        for user in (caller, callee):
+            if user:
+                _emit_to_username(user, 'call_ended', {
+                    'call_id': call_id,
+                    'room_id': room_id,
+                    'reason': reason,
+                })
+
+        # remove empty call room
+        if room_id and room_id in call_rooms:
+            participants = call_rooms[room_id].get('participants', {})
+            if not participants:
+                try:
+                    del call_rooms[room_id]
+                except Exception:
+                    pass
+    except Exception as e:
+        print(f'Error cleaning up call {call_id}: {e}')
+
 def _send_fcm_notification(username, data):
     """Send FCM notification to a user"""
     token = User.get_fcm_token(username)
@@ -182,28 +304,45 @@ def _send_fcm_notification(username, data):
         return False
         
     try:
-        message = messaging.Message(
-            data={
-                'type': 'incoming_call',
+        # Build flexible payload depending on message type
+        payload_type = str(data.get('type', 'notification'))
+        fcm_data = {'type': payload_type}
+
+        if payload_type == 'incoming_call':
+            fcm_data.update({
                 'call_id': str(data.get('call_id', '')),
                 'room_id': str(data.get('room_id', '')),
                 'caller_username': str(data.get('caller_username', '')),
                 'caller_display_name': str(data.get('caller_display_name', '')),
                 'caller_profile_image': str(data.get('caller_profile_image', '')),
                 'call_type': str(data.get('call_type', 'video')),
-            },
+            })
+        elif payload_type in ('message', 'text'):
+            # message payload: include sender, snippet, id
+            text = str(data.get('text') or data.get('body') or '')
+            snippet = (text[:120] + '...') if len(text) > 120 else text
+            fcm_data.update({
+                'message_id': str(data.get('id', '')),
+                'sender': str(data.get('sender', '')),
+                'conversation_with': str(data.get('sender', '')),
+                'text_snippet': snippet,
+            })
+        else:
+            # Generic keys pass-through
+            for k, v in (data or {}).items():
+                try:
+                    fcm_data[str(k)] = str(v)
+                except Exception:
+                    continue
+
+        message = messaging.Message(
+            data=fcm_data,
             token=token,
-            android=messaging.AndroidConfig(
-                priority='high',
-            ),
-            apns=messaging.APNSConfig(
-                payload=messaging.APNSPayload(
-                    aps=messaging.Aps(content_available=True),
-                ),
-            ),
+            android=messaging.AndroidConfig(priority='high'),
+            apns=messaging.APNSConfig(payload=messaging.APNSPayload(aps=messaging.Aps(content_available=True))),
         )
         response = messaging.send(message)
-        print(f"FCM sent to {username}: {response}")
+        print(f"FCM sent to {username}: {response} payload_type={payload_type}")
         return True
     except Exception as e:
         print(f"Error sending FCM to {username}: {e}")

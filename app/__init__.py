@@ -78,8 +78,10 @@ def create_app():
     from app.routes.messaging import messaging_bp
     from app.routes.stories import stories_bp
     from app.routes.notes import notes_bp
+    from app.routes.friends import friends_bp
     app.register_blueprint(auth_bp, url_prefix='/api/auth')
     app.register_blueprint(messaging_bp, url_prefix='/api/messages')
+    app.register_blueprint(friends_bp, url_prefix='/api/friends')
     app.register_blueprint(stories_bp, url_prefix='/api/stories')
     app.register_blueprint(notes_bp, url_prefix='/api/notes')
 

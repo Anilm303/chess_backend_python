@@ -38,6 +38,9 @@ def _normalize_timestamp(value=None):
     except Exception:
         return text
 
+
+MAX_MESSAGE_SIZE = int(os.getenv('MAX_MESSAGE_SIZE', str(10 * 1024 * 1024)))
+
 def get_messages():
     """Load messages from JSON file"""
     if os.path.exists(MESSAGES_FILE):
@@ -114,6 +117,9 @@ class Message:
             filename = create_media_filename(extension)
             try:
                 media_bytes = base64.b64decode(media_base64)
+                # Validate size
+                if len(media_bytes) > MAX_MESSAGE_SIZE:
+                    return False, 'File too large'
                 media_url = store_media_bytes('messages', filename, media_bytes, content_type='video/mp4' if message_type == 'video' else 'image/jpeg')
 
                 # Generate thumbnail if it's a video
@@ -165,6 +171,9 @@ class Message:
         elif message_type in ['image', 'video']:
             if not media_bytes:
                 return False, f'{message_type} data required'
+            # Validate size
+            if len(media_bytes) > MAX_MESSAGE_SIZE:
+                return False, 'File too large'
             extension = 'mp4' if message_type == 'video' else 'jpg'
             filename = create_media_filename(extension)
             try:

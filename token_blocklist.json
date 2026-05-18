@@ -1,0 +1,26 @@
+[
+  {
+    "jti": "97284de4-6ade-44b5-a6a1-765f3f29e2e8",
+    "token_type": "access",
+    "revoked_at": "2026-05-18T06:47:46.251690",
+    "expires_at": null
+  },
+  {
+    "jti": "69017e61-9d9a-495e-9614-e6a80e34fbe8",
+    "token_type": "refresh",
+    "revoked_at": "2026-05-18T06:47:46.253349",
+    "expires_at": null
+  },
+  {
+    "jti": "3bf344e3-2b68-4e72-9cf2-d1326a361e60",
+    "token_type": "access",
+    "revoked_at": "2026-05-18T07:20:54.113737",
+    "expires_at": null
+  },
+  {
+    "jti": "640ba5ad-3221-4e2b-aca3-6c612d894cf7",
+    "token_type": "refresh",
+    "revoked_at": "2026-05-18T07:20:54.116625",
+    "expires_at": null
+  }
+]
