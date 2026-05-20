@@ -85,6 +85,33 @@ def respond_friend_request():
         requester_friends.add(current)
         current_user['friends'] = sorted(list(current_friends))
         users[requester]['friends'] = sorted(list(requester_friends))
+        # Notify requester in real-time if connected
+        try:
+            _emit_to_username(requester, 'friend_request_responded', {
+                'from': current,
+                'accepted': True,
+                'username': current,
+                'message': f'{current} accepted your friend request',
+            })
+            # Also notify current user that friendship was established
+            _emit_to_username(current, 'friend_added', {
+                'username': requester,
+                'message': f'You are now friends with {requester}'
+            })
+        except Exception:
+            pass
+        # Additionally emit updated friend lists to both users for immediate sync
+        try:
+            _emit_to_username(requester, 'friend_list_update', {
+                'username': requester,
+                'friends': users[requester].get('friends', []),
+            })
+            _emit_to_username(current, 'friend_list_update', {
+                'username': current,
+                'friends': users[current].get('friends', []),
+            })
+        except Exception:
+            pass
 
     users[current] = current_user
     save_users(users)
@@ -124,3 +151,26 @@ def get_requests():
         return jsonify({'success': False, 'message': 'User not found'}), 404
     reqs = users[current].get('friend_requests', [])
     return jsonify({'success': True, 'requests': reqs}), 200
+
+
+@friends_bp.route('/check-pair', methods=['GET'])
+@jwt_required()
+def check_pair():
+    """Debug endpoint: returns friends arrays for two users (u1 and u2 query params)."""
+    u1 = (request.args.get('u1') or '').strip()
+    u2 = (request.args.get('u2') or '').strip()
+    if not u1 or not u2:
+        return jsonify({'success': False, 'message': 'u1 and u2 query params required'}), 400
+    users = get_users()
+    if u1 not in users or u2 not in users:
+        return jsonify({'success': False, 'message': 'One or both users not found', 'users': list(users.keys())}), 404
+
+    return jsonify({
+        'success': True,
+        'u1': u1,
+        'u2': u2,
+        'u1_friends': users[u1].get('friends', []),
+        'u2_friends': users[u2].get('friends', []),
+        'u1_requests': users[u1].get('friend_requests', []),
+        'u2_requests': users[u2].get('friend_requests', []),
+    }), 200

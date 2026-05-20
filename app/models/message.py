@@ -90,7 +90,7 @@ class Message:
 
     @staticmethod
     def send_message(sender, receiver, text='', message_type='text',
-                     media_base64=None, reply_to_id=None, timestamp=None):
+                     media_base64=None, media_path=None, reply_to_id=None, timestamp=None):
         """Send a message from sender to receiver"""
         from .user import User
 
@@ -111,28 +111,29 @@ class Message:
             if not text or text.strip() == '':
                 text = 'Incoming call'
         elif message_type in ['image', 'video']:
-            if not media_base64:
-                return False, f'{message_type} data required'
-            extension = 'mp4' if message_type == 'video' else 'jpg'
-            filename = create_media_filename(extension)
-            try:
-                media_bytes = base64.b64decode(media_base64)
-                # Validate size
-                if len(media_bytes) > MAX_MESSAGE_SIZE:
-                    return False, 'File too large'
-                media_url = store_media_bytes('messages', filename, media_bytes, content_type='video/mp4' if message_type == 'video' else 'image/jpeg')
+            if media_path:
+                media_url = media_path
+            elif media_base64:
+                extension = 'mp4' if message_type == 'video' else 'jpg'
+                filename = create_media_filename(extension)
+                try:
+                    media_bytes = base64.b64decode(media_base64)
+                    if len(media_bytes) > MAX_MESSAGE_SIZE:
+                        return False, 'File too large'
+                    media_url = store_media_bytes('messages', filename, media_bytes, content_type='video/mp4' if message_type == 'video' else 'image/jpeg')
 
-                # Generate thumbnail if it's a video
-                if message_type == 'video':
-                    from app.utils import generate_video_thumbnail
-                    thumb_filename = f"{filename.split('.')[0]}_thumb.jpg"
-                    thumb_filepath = os.path.join(UPLOADS_FOLDER, thumb_filename)
-                    if generate_video_thumbnail(os.path.join(UPLOADS_FOLDER, filename), thumb_filepath):
-                        with open(thumb_filepath, 'rb') as thumb_file:
-                            thumbnail_url = store_media_bytes('messages', thumb_filename, thumb_file.read(), content_type='image/jpeg')
-            except Exception as e:
-                print(f"Error saving file: {e}")
-                return False, 'Failed to save media file'
+                    if message_type == 'video':
+                        from app.utils import generate_video_thumbnail
+                        thumb_filename = f"{filename.split('.')[0]}_thumb.jpg"
+                        thumb_filepath = os.path.join(UPLOADS_FOLDER, thumb_filename)
+                        if generate_video_thumbnail(os.path.join(UPLOADS_FOLDER, filename), thumb_filepath):
+                            with open(thumb_filepath, 'rb') as thumb_file:
+                                thumbnail_url = store_media_bytes('messages', thumb_filename, thumb_file.read(), content_type='image/jpeg')
+                except Exception as e:
+                    print(f"Error saving file: {e}")
+                    return False, 'Failed to save media file'
+            else:
+                return False, f'{message_type} data required'
         else:
             return False, 'Invalid message type'
 
@@ -148,7 +149,7 @@ class Message:
 
     @staticmethod
     def send_message_bytes(sender, receiver, text='', message_type='text',
-                           media_bytes=None, reply_to_id=None, timestamp=None):
+                           media_bytes=None, media_path=None, reply_to_id=None, timestamp=None):
         """Send a message using raw file bytes instead of base64."""
         from .user import User
 
@@ -169,26 +170,28 @@ class Message:
             if not text or text.strip() == '':
                 text = 'Incoming call'
         elif message_type in ['image', 'video']:
-            if not media_bytes:
-                return False, f'{message_type} data required'
-            # Validate size
-            if len(media_bytes) > MAX_MESSAGE_SIZE:
-                return False, 'File too large'
-            extension = 'mp4' if message_type == 'video' else 'jpg'
-            filename = create_media_filename(extension)
-            try:
-                media_url = store_media_bytes('messages', filename, media_bytes, content_type='video/mp4' if message_type == 'video' else 'image/jpeg')
+            if media_path:
+                media_url = media_path
+            elif media_bytes:
+                if len(media_bytes) > MAX_MESSAGE_SIZE:
+                    return False, 'File too large'
+                extension = 'mp4' if message_type == 'video' else 'jpg'
+                filename = create_media_filename(extension)
+                try:
+                    media_url = store_media_bytes('messages', filename, media_bytes, content_type='video/mp4' if message_type == 'video' else 'image/jpeg')
 
-                if message_type == 'video':
-                    from app.utils import generate_video_thumbnail
-                    thumb_filename = f"{filename.split('.')[0]}_thumb.jpg"
-                    thumb_filepath = os.path.join(UPLOADS_FOLDER, thumb_filename)
-                    if generate_video_thumbnail(os.path.join(UPLOADS_FOLDER, filename), thumb_filepath):
-                        with open(thumb_filepath, 'rb') as thumb_file:
-                            thumbnail_url = store_media_bytes('messages', thumb_filename, thumb_file.read(), content_type='image/jpeg')
-            except Exception as e:
-                print(f"Error saving file: {e}")
-                return False, 'Failed to save media file'
+                    if message_type == 'video':
+                        from app.utils import generate_video_thumbnail
+                        thumb_filename = f"{filename.split('.')[0]}_thumb.jpg"
+                        thumb_filepath = os.path.join(UPLOADS_FOLDER, thumb_filename)
+                        if generate_video_thumbnail(os.path.join(UPLOADS_FOLDER, filename), thumb_filepath):
+                            with open(thumb_filepath, 'rb') as thumb_file:
+                                thumbnail_url = store_media_bytes('messages', thumb_filename, thumb_file.read(), content_type='image/jpeg')
+                except Exception as e:
+                    print(f"Error saving file: {e}")
+                    return False, 'Failed to save media file'
+            else:
+                return False, f'{message_type} data required'
         else:
             return False, 'Invalid message type'
 

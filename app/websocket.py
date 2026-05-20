@@ -96,20 +96,12 @@ def handle_disconnect():
                         emit('call_participant_left', {'room_id': room_id, 'username': username}, room=room_id)
                     if not participants:
                         del call_rooms[room_id]
-
-                # If user disconnects while a call is still ringing, notify the other side.
+                # If user disconnects while a call is still ringing, clean up using central helper
                 for call_id, call_data in list(pending_calls.items()):
                     caller = call_data.get('caller_username')
                     callee = call_data.get('callee_username')
                     if username in {caller, callee}:
-                        other_user = callee if username == caller else caller
-                        if other_user:
-                            _emit_to_username(other_user, 'call_ended', {
-                                'call_id': call_id,
-                                'room_id': call_data.get('room_id'),
-                                'reason': 'peer_disconnected',
-                            })
-                        pending_calls.pop(call_id, None)
+                        _cleanup_pending_call(call_id, reason='peer_disconnected')
                 print(f"User {username} disconnected")
                 break
     except Exception as e:
@@ -256,6 +248,13 @@ def _emit_to_username(username, event, payload):
         return False
 
 
+def _are_friends(user_a, user_b):
+    users = User.get_all_users()
+    friends_a = set(users.get(user_a, {}).get('friends', []))
+    friends_b = set(users.get(user_b, {}).get('friends', []))
+    return user_b in friends_a and user_a in friends_b
+
+
 def _cleanup_pending_call(call_id, reason='timeout'):
     """Clean up a pending call and notify parties."""
     try:
@@ -361,6 +360,15 @@ def handle_call_user(data):
     if not valid_caller or not valid_callee:
         return
 
+    if not _are_friends(caller_or_message, callee_or_message):
+        _emit_to_username(caller_or_message, 'call_rejected', {
+            'callee_username': callee_or_message,
+            'reason': 'not_friends',
+            'message': 'Call is allowed only between friends',
+            'call_type': data.get('call_type') or 'video',
+        })
+        return
+
     if call_id and caller_or_message and callee_or_message:
         pending_calls[call_id] = {
             'caller_username': caller_or_message,
@@ -368,6 +376,14 @@ def handle_call_user(data):
             'room_id': room_id,
             'call_type': data.get('call_type') or 'video',
         }
+        # start cleanup timeout in case call is not answered
+        try:
+            timer = threading.Timer(CALL_RING_TIMEOUT, lambda: _cleanup_pending_call(call_id, reason='no_answer'))
+            timer.daemon = True
+            timer.start()
+            pending_call_timeouts[call_id] = timer
+        except Exception as e:
+            print(f"Error starting call timeout for {call_id}: {e}")
 
     if callee_or_message:
         sent_socket = _emit_to_username(callee_or_message, 'incoming_call', {**data, 'caller_username': caller_or_message, 'callee_username': callee_or_message})
@@ -401,6 +417,15 @@ def handle_call_add_participant(data):
     valid_invitee, invitee_or_message = validate_username(invitee_username)
     valid_inviter, inviter_or_message = validate_username(inviter_username)
     if not valid_invitee or not valid_inviter:
+        return
+
+    if not _are_friends(inviter_or_message, invitee_or_message):
+        _emit_to_username(inviter_or_message, 'call_rejected', {
+            'callee_username': invitee_or_message,
+            'reason': 'not_friends',
+            'message': 'Call is allowed only between friends',
+            'call_type': data.get('call_type') or 'video',
+        })
         return
 
     if invitee_or_message:
@@ -546,6 +571,13 @@ def handle_accept_call(data):
     callee_username = data.get('callee_username')
 
     if call_id:
+        # cancel timeout for this pending call
+        timeout = pending_call_timeouts.pop(call_id, None)
+        try:
+            if timeout:
+                timeout.cancel()
+        except Exception:
+            pass
         pending_calls.pop(call_id, None)
 
     room = call_rooms.setdefault(room_id, {'participants': {}, 'call_id': data.get('call_id')})
@@ -569,6 +601,12 @@ def handle_reject_call(data):
     call_id = data.get('call_id')
     print(f"Call rejected by {data.get('callee_username')}")
     if call_id:
+        timeout = pending_call_timeouts.pop(call_id, None)
+        try:
+            if timeout:
+                timeout.cancel()
+        except Exception:
+            pass
         pending_calls.pop(call_id, None)
     _emit_to_username(caller_username, 'call_rejected', data)
     _emit_to_username(caller_username, 'call_declined', {
@@ -599,6 +637,13 @@ def handle_end_call(data):
 
     # Handle unanswered/ringing calls where callee may not have joined the room yet.
     if call_id:
+        # cancel timeout and remove pending call
+        timeout = pending_call_timeouts.pop(call_id, None)
+        try:
+            if timeout:
+                timeout.cancel()
+        except Exception:
+            pass
         pending = pending_calls.pop(call_id, None)
         if pending:
             caller = pending.get('caller_username')

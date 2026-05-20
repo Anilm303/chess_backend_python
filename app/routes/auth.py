@@ -17,6 +17,7 @@ from app.security import (
     validate_password,
     validate_username,
 )
+from app.password_reset import create_token_for_email, verify_and_consume_token
 
 auth_bp = Blueprint('auth', __name__)
 
@@ -209,3 +210,47 @@ def update_fcm_token():
 def health():
     """Health check endpoint"""
     return jsonify({'status': 'healthy', 'service': 'chess-auth-api'}), 200
+
+
+@auth_bp.route('/forgot-password', methods=['POST'])
+@rate_limit(limit=5, window_seconds=60, scope='auth_forgot_password')
+def forgot_password():
+    data, error_response = require_json_body()
+    if error_response:
+        return error_response
+
+    email = data.get('email', '')
+    valid_email, email_or_message = validate_email(email)
+    if not valid_email:
+        return jsonify({'success': False, 'message': email_or_message}), 400
+
+    success, result = create_token_for_email(email_or_message)
+    if not success:
+        return jsonify({'success': False, 'message': result}), 400
+
+    # If we return token in dev mode, include it for ease of testing.
+    if isinstance(result, dict) and result.get('dev'):
+        return jsonify({'success': True, 'message': 'Password reset token created (dev)', 'token': result.get('token')}), 200
+
+    return jsonify({'success': True, 'message': 'If the email is registered, a reset link was sent.'}), 200
+
+
+@auth_bp.route('/reset-password', methods=['POST'])
+@rate_limit(limit=5, window_seconds=60, scope='auth_reset_password')
+def reset_password():
+    data, error_response = require_json_body()
+    if error_response:
+        return error_response
+
+    token = data.get('token', '')
+    new_password = data.get('new_password', '')
+
+    valid_password, password_or_message = validate_password(new_password)
+    if not valid_password:
+        return jsonify({'success': False, 'message': password_or_message}), 400
+
+    success, message = verify_and_consume_token(token, password_or_message)
+    if not success:
+        return jsonify({'success': False, 'message': message}), 400
+
+    return jsonify({'success': True, 'message': 'Password has been reset successfully'}), 200

@@ -22,5 +22,197 @@
     "token_type": "refresh",
     "revoked_at": "2026-05-18T07:20:54.116625",
     "expires_at": null
+  },
+  {
+    "jti": "3483d9f3-7b8b-4694-b1c9-3e1afe77e97d",
+    "token_type": "access",
+    "revoked_at": "2026-05-18T11:00:50.040153",
+    "expires_at": null
+  },
+  {
+    "jti": "a13fc342-1510-400f-a508-174e020fe8c3",
+    "token_type": "refresh",
+    "revoked_at": "2026-05-18T11:00:50.042235",
+    "expires_at": null
+  },
+  {
+    "jti": "edf8bec9-f91b-4bd2-a084-4c2fc71876a6",
+    "token_type": "access",
+    "revoked_at": "2026-05-20T04:07:12.454780",
+    "expires_at": null
+  },
+  {
+    "jti": "335f99a1-3614-4c93-a610-d386afed547c",
+    "token_type": "refresh",
+    "revoked_at": "2026-05-20T04:07:12.456562",
+    "expires_at": null
+  },
+  {
+    "jti": "74db3a3d-870e-4a76-b7f0-6e2aa2a9c922",
+    "token_type": "access",
+    "revoked_at": "2026-05-20T04:09:33.049722",
+    "expires_at": null
+  },
+  {
+    "jti": "64b69295-8c2e-4dee-84d2-83a5f88a8464",
+    "token_type": "refresh",
+    "revoked_at": "2026-05-20T04:09:33.055524",
+    "expires_at": null
+  },
+  {
+    "jti": "e474df47-5d4c-4510-b5c4-4b3f05ac9ab3",
+    "token_type": "access",
+    "revoked_at": "2026-05-20T04:31:43.314172",
+    "expires_at": null
+  },
+  {
+    "jti": "ddbaf284-f33f-4a62-99f3-24f6c6602036",
+    "token_type": "refresh",
+    "revoked_at": "2026-05-20T04:31:43.316786",
+    "expires_at": null
+  },
+  {
+    "jti": "eff8be3f-3311-4b37-b583-fa776a52a4af",
+    "token_type": "access",
+    "revoked_at": "2026-05-20T05:03:18.756902",
+    "expires_at": null
+  },
+  {
+    "jti": "785b90d1-9768-47be-9087-e0d328a43ee6",
+    "token_type": "refresh",
+    "revoked_at": "2026-05-20T05:03:18.759537",
+    "expires_at": null
+  },
+  {
+    "jti": "1a920875-c0a8-4163-8878-6e749dbcc641",
+    "token_type": "access",
+    "revoked_at": "2026-05-20T05:04:20.391552",
+    "expires_at": null
+  },
+  {
+    "jti": "b78374d9-db87-42e9-a62e-066ef0c465fb",
+    "token_type": "refresh",
+    "revoked_at": "2026-05-20T05:04:20.396142",
+    "expires_at": null
+  },
+  {
+    "jti": "d809486a-d6ff-411b-97de-300738ddbbb2",
+    "token_type": "access",
+    "revoked_at": "2026-05-20T05:05:44.915300",
+    "expires_at": null
+  },
+  {
+    "jti": "7fd8eb97-5113-458e-b063-443f6fc4a9eb",
+    "token_type": "refresh",
+    "revoked_at": "2026-05-20T05:05:44.920651",
+    "expires_at": null
+  },
+  {
+    "jti": "b4e08726-4f5d-4e15-9469-8396ecad49f5",
+    "token_type": "access",
+    "revoked_at": "2026-05-20T06:04:50.858981",
+    "expires_at": null
+  },
+  {
+    "jti": "3bab6974-22dc-4f58-b28f-cf62050e5111",
+    "token_type": "refresh",
+    "revoked_at": "2026-05-20T06:04:50.860100",
+    "expires_at": null
+  },
+  {
+    "jti": "e5a26475-19e6-4aac-8348-37ac093a6edc",
+    "token_type": "access",
+    "revoked_at": "2026-05-20T06:05:21.844228",
+    "expires_at": null
+  },
+  {
+    "jti": "3188b15e-b865-425e-ad4a-7a6be5f5385e",
+    "token_type": "refresh",
+    "revoked_at": "2026-05-20T06:05:21.845415",
+    "expires_at": null
+  },
+  {
+    "jti": "6ee645f5-2cbb-4b03-91d9-6cc8e7f51403",
+    "token_type": "access",
+    "revoked_at": "2026-05-20T06:14:45.957391",
+    "expires_at": null
+  },
+  {
+    "jti": "355aee03-9e5d-4641-b2a6-7f29b2386551",
+    "token_type": "refresh",
+    "revoked_at": "2026-05-20T06:14:45.958184",
+    "expires_at": null
+  },
+  {
+    "jti": "75971e96-300d-42c3-a269-1ea9c4613555",
+    "token_type": "access",
+    "revoked_at": "2026-05-20T06:17:01.127460",
+    "expires_at": null
+  },
+  {
+    "jti": "cc46ffa1-ee2e-4f6f-b190-530c3cd9d07e",
+    "token_type": "refresh",
+    "revoked_at": "2026-05-20T06:17:01.129060",
+    "expires_at": null
+  },
+  {
+    "jti": "c6c20589-c2c9-4b64-8462-55e99d81491c",
+    "token_type": "access",
+    "revoked_at": "2026-05-20T06:17:51.367727",
+    "expires_at": null
+  },
+  {
+    "jti": "3e5aa4a8-c7c9-461e-8859-42c0db023408",
+    "token_type": "refresh",
+    "revoked_at": "2026-05-20T06:17:51.369485",
+    "expires_at": null
+  },
+  {
+    "jti": "4b2c492a-e024-44ea-84e3-d0ba732f8885",
+    "token_type": "access",
+    "revoked_at": "2026-05-20T14:53:46.299797",
+    "expires_at": null
+  },
+  {
+    "jti": "338cb221-dcaa-46f4-9536-ba36c768a8fd",
+    "token_type": "refresh",
+    "revoked_at": "2026-05-20T14:53:46.302068",
+    "expires_at": null
+  },
+  {
+    "jti": "87a0ed66-8016-4f54-b0dd-36663476fceb",
+    "token_type": "access",
+    "revoked_at": "2026-05-20T14:54:30.032216",
+    "expires_at": null
+  },
+  {
+    "jti": "62fdf45b-08cc-4a22-91bd-ed8705569553",
+    "token_type": "refresh",
+    "revoked_at": "2026-05-20T14:54:30.037112",
+    "expires_at": null
+  },
+  {
+    "jti": "1a31f262-8711-4386-b991-8a0a323b6df7",
+    "token_type": "access",
+    "revoked_at": "2026-05-20T14:55:03.578856",
+    "expires_at": null
+  },
+  {
+    "jti": "59c16021-6b6a-4468-a7a7-e85307a4ae2e",
+    "token_type": "refresh",
+    "revoked_at": "2026-05-20T14:55:03.581941",
+    "expires_at": null
+  },
+  {
+    "jti": "f325088e-daec-4f65-a662-ad6e007bfe83",
+    "token_type": "access",
+    "revoked_at": "2026-05-20T14:55:12.223033",
+    "expires_at": null
+  },
+  {
+    "jti": "d73d1d6b-0f96-47d2-a8ce-834ebed86ae7",
+    "token_type": "refresh",
+    "revoked_at": "2026-05-20T14:55:12.224577",
+    "expires_at": null
   }
 ]

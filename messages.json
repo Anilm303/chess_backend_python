@@ -512,8 +512,8 @@
     "thumbnail_url": null,
     "reply_to_id": null,
     "timestamp": "2026-05-12T12:33:00.855000",
-    "status": "sent",
-    "is_read": false,
+    "status": "seen",
+    "is_read": true,
     "reactions": {}
   },
   "81c3700a-8a24-4d23-bbc8-601a6541bd8c": {
@@ -1301,6 +1301,48 @@
     "reply_to_id": null,
     "timestamp": "2026-05-18T06:55:56.063621",
     "status": "delivered",
+    "is_read": false,
+    "reactions": {}
+  },
+  "99ea4582-eeff-4302-9e88-a6666300de4a": {
+    "id": "99ea4582-eeff-4302-9e88-a6666300de4a",
+    "sender": "Ram",
+    "receiver": "AnilMagar",
+    "text": "hi",
+    "message_type": "text",
+    "media_url": null,
+    "thumbnail_url": null,
+    "reply_to_id": null,
+    "timestamp": "2026-05-18T16:45:22.481000",
+    "status": "seen",
+    "is_read": true,
+    "reactions": {}
+  },
+  "0f815787-9b25-4e5d-b16d-2ddd6e86f504": {
+    "id": "0f815787-9b25-4e5d-b16d-2ddd6e86f504",
+    "sender": "AnilMagar",
+    "receiver": "Ram",
+    "text": "\ud83d\udc4d",
+    "message_type": "text",
+    "media_url": null,
+    "thumbnail_url": null,
+    "reply_to_id": null,
+    "timestamp": "2026-05-20T10:18:17.634000",
+    "status": "seen",
+    "is_read": true,
+    "reactions": {}
+  },
+  "8e7ab8bd-96a8-40ab-887f-7470619c0de2": {
+    "id": "8e7ab8bd-96a8-40ab-887f-7470619c0de2",
+    "sender": "AnilMagar",
+    "receiver": "tara",
+    "text": "\ud83d\udc4d",
+    "message_type": "text",
+    "media_url": null,
+    "thumbnail_url": null,
+    "reply_to_id": null,
+    "timestamp": "2026-05-20T10:18:42.405000",
+    "status": "sent",
     "is_read": false,
     "reactions": {}
   }

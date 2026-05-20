@@ -178,6 +178,15 @@ def send_message():
     if message_type in ['image', 'video'] and media_base64 is not None:
         if not isinstance(media_base64, str) or not media_base64.strip():
             return jsonify({'success': False, 'message': f'{message_type} data is required'}), 400
+
+    # Allow direct messaging only between friends.
+    users = User.get_all_users()
+    sender_friends = set(users.get(sender, {}).get('friends', []))
+    if receiver_or_message not in sender_friends:
+        return jsonify({
+            'success': False,
+            'message': 'Message is allowed only between friends',
+        }), 403
     
     if media_bytes is not None:
         success, result = Message.send_message_bytes(
@@ -206,20 +215,7 @@ def send_message():
     try:
         from app.websocket import _emit_to_username
         message_payload = result.to_dict()
-        # If sender and receiver are friends, deliver normally. Otherwise treat as message request.
-        users = User.get_all_users()
-        sender_friends = set(users.get(sender, {}).get('friends', []))
-        if receiver_or_message in sender_friends:
-            delivered = _emit_to_username(receiver, 'message_received', message_payload)
-        else:
-            # mark as request
-            from app.models.message import get_messages, save_messages
-            messages = get_messages()
-            if hasattr(result, 'id') and result.id in messages:
-                messages[result.id]['status'] = 'request'
-                save_messages(messages)
-            # notify recipient of incoming message request
-            delivered = _emit_to_username(receiver, 'message_request', message_payload)
+        delivered = _emit_to_username(receiver, 'message_received', message_payload)
         # If socket not delivered, send FCM fallback
         if not delivered:
             try:
@@ -557,11 +553,65 @@ def create_group():
 @jwt_required()
 def get_group_messages(group_id):
     current_user = get_jwt_identity()
+    # Add pagination support: ?limit=50&offset=0
+    try:
+        limit = int(request.args.get('limit', 50))
+        offset = int(request.args.get('offset', 0))
+    except Exception:
+        limit = 50
+        offset = 0
+
     success, result = GroupChat.get_group_messages(group_id, current_user)
     if not success:
         return jsonify({'success': False, 'message': result}), 403
+
+    # result expected to be a list of messages (newest last or first).
+    # Normalize to list and paginate newest-first semantics
+    try:
+        messages = list(result)
+        # Assume messages are ordered oldest->newest; reverse for newest-first pagination
+        messages.reverse()
+    except Exception:
+        messages = result
+
+    total = len(messages)
+    sliced = messages[offset: offset + limit]
+    has_more = (offset + limit) < total
+
     GroupChat.mark_group_seen(group_id, current_user)
-    return jsonify({'success': True, 'messages': result}), 200
+    return jsonify({'success': True, 'messages': sliced, 'total': total, 'offset': offset, 'limit': limit, 'has_more': has_more}), 200
+
+
+@messaging_bp.route('/sync', methods=['GET'])
+@jwt_required()
+def sync_messages():
+    """Sync missed messages for the current user since last_sync timestamp (ISO)."""
+    current_user = get_jwt_identity()
+    last_sync = request.args.get('last_sync')
+
+    try:
+        all_messages = Message.get_messages()  # returns dict of id->message
+        results = []
+        for mid, msg in all_messages.items():
+            if msg.get('receiver') != current_user:
+                continue
+            # If last_sync provided, filter
+            if last_sync:
+                try:
+                    msg_time = datetime.fromisoformat(msg.get('timestamp'))
+                    last_sync_time = datetime.fromisoformat(last_sync)
+                    if msg_time <= last_sync_time:
+                        continue
+                except Exception:
+                    # If timestamp parsing fails, include message
+                    pass
+            results.append(msg)
+
+        # Sort oldest->newest
+        results.sort(key=lambda x: x.get('timestamp', ''))
+        return jsonify({'success': True, 'messages': results, 'sync_timestamp': datetime.utcnow().isoformat()}), 200
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
 
 
 @messaging_bp.route('/groups/<group_id>/messages', methods=['POST'])

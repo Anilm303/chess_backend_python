@@ -79,11 +79,13 @@ def create_app():
     from app.routes.stories import stories_bp
     from app.routes.notes import notes_bp
     from app.routes.friends import friends_bp
+    from app.routes.upload import upload_bp
     app.register_blueprint(auth_bp, url_prefix='/api/auth')
     app.register_blueprint(messaging_bp, url_prefix='/api/messages')
     app.register_blueprint(friends_bp, url_prefix='/api/friends')
     app.register_blueprint(stories_bp, url_prefix='/api/stories')
     app.register_blueprint(notes_bp, url_prefix='/api/notes')
+    app.register_blueprint(upload_bp, url_prefix='/api/upload')
 
     # Register Socket.IO handlers (messaging + call signaling)
     from app import websocket as ws_handlers  # noqa: F401
