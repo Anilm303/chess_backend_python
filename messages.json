@@ -1345,5 +1345,47 @@
     "status": "sent",
     "is_read": false,
     "reactions": {}
+  },
+  "298489c9-29ee-47af-b614-1585d6cf921b": {
+    "id": "298489c9-29ee-47af-b614-1585d6cf921b",
+    "sender": "hari",
+    "receiver": "AnilMagar",
+    "text": "\ud83d\udc4d",
+    "message_type": "text",
+    "media_url": null,
+    "thumbnail_url": null,
+    "reply_to_id": null,
+    "timestamp": "2026-05-21T14:26:23.932882",
+    "status": "seen",
+    "is_read": true,
+    "reactions": {}
+  },
+  "38bcf88c-431c-4994-be61-ecbf84b5b507": {
+    "id": "38bcf88c-431c-4994-be61-ecbf84b5b507",
+    "sender": "hari",
+    "receiver": "AnilMagar",
+    "text": "\ud83d\udc4d",
+    "message_type": "text",
+    "media_url": null,
+    "thumbnail_url": null,
+    "reply_to_id": null,
+    "timestamp": "2026-05-21T14:35:33.558759",
+    "status": "seen",
+    "is_read": true,
+    "reactions": {}
+  },
+  "4b9adc72-10ff-4a96-92c0-5281cd53f706": {
+    "id": "4b9adc72-10ff-4a96-92c0-5281cd53f706",
+    "sender": "AnilMagar",
+    "receiver": "hari",
+    "text": "\ud83d\udc4d",
+    "message_type": "text",
+    "media_url": null,
+    "thumbnail_url": null,
+    "reply_to_id": null,
+    "timestamp": "2026-05-21T14:36:56.867759",
+    "status": "sent",
+    "is_read": false,
+    "reactions": {}
   }
 }

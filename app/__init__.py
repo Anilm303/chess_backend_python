@@ -5,7 +5,10 @@ from flask import Flask, jsonify, send_from_directory
 from flask_cors import CORS
 from flask_jwt_extended import JWTManager
 from flask_socketio import SocketIO
+from dotenv import find_dotenv, load_dotenv
 from app.token_store import is_token_revoked, cleanup_blocklist, clear_blocklist
+
+load_dotenv(find_dotenv(usecwd=True))
 
 # Initialize SocketIO globally.
 # Use threading mode so the backend runs on Python 3.13 / Windows without eventlet.

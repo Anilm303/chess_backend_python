@@ -18,7 +18,32 @@ def _load_tokens():
     try:
         with open(_FILE, 'r', encoding='utf-8') as fh:
             data = json.load(fh)
-            return data if isinstance(data, list) else []
+            if not isinstance(data, list):
+                return []
+
+            # Remove expired tokens on load to keep the token store clean
+            now = datetime.utcnow()
+            kept = []
+            changed = False
+            for it in data:
+                expires_at = it.get('expires_at')
+                try:
+                    expires = datetime.fromisoformat(str(expires_at).replace('Z', '+00:00'))
+                except Exception:
+                    # If parsing fails, consider it expired to be safe
+                    expires = now
+                if expires >= now:
+                    kept.append(it)
+                else:
+                    changed = True
+
+            if changed:
+                try:
+                    _save_tokens(kept)
+                except Exception:
+                    pass
+
+            return kept
     except Exception:
         return []
 
@@ -93,8 +118,14 @@ def create_token_for_email(email, expiry_seconds=3600):
     except Exception:
         logging.getLogger(__name__).exception('Failed to send password reset email')
 
-    # If email not configured or sending failed, return token in response for dev use
-    return True, {'token': token, 'dev': True}
+    # If email not configured or sending failed, decide whether to return token in response for dev use.
+    # Enable returning the token in responses only when the environment variable
+    # `PASSWORD_RESET_RETURN_TOKEN` is set to a truthy value (1/true/yes).
+    if os.getenv('PASSWORD_RESET_RETURN_TOKEN', 'false').lower() in ('1', 'true', 'yes'):
+        return True, {'token': token, 'dev': True}
+
+    # Otherwise, indicate that an attempt was made but no email was sent from the app.
+    return True, {'sent': False}
 
 
 def verify_and_consume_token(token, new_password):

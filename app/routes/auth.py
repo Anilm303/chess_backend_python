@@ -191,7 +191,7 @@ def logout():
 @rate_limit(limit=20, window_seconds=60, scope='auth_update_fcm_token')
 def update_fcm_token():
     """Update user's FCM token"""
-    username = get_jwt_identity()
+    username = get_jwt_identity()  
     data, error_response = require_json_body()
     if error_response:
         return error_response
@@ -225,10 +225,14 @@ def forgot_password():
         return jsonify({'success': False, 'message': email_or_message}), 400
 
     success, result = create_token_for_email(email_or_message)
+
+    # Prevent email enumeration: if the email is not found, still return a generic success message.
     if not success:
+        if result == 'Email not found':
+            return jsonify({'success': True, 'message': 'If the email is registered, a reset link was sent.'}), 200
         return jsonify({'success': False, 'message': result}), 400
 
-    # If we return token in dev mode, include it for ease of testing.
+    # If we return token in dev mode (controlled by PASSWORD_RESET_RETURN_TOKEN), include it for testing.
     if isinstance(result, dict) and result.get('dev'):
         return jsonify({'success': True, 'message': 'Password reset token created (dev)', 'token': result.get('token')}), 200
 

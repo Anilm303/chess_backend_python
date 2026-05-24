@@ -214,5 +214,89 @@
     "token_type": "refresh",
     "revoked_at": "2026-05-20T14:55:12.224577",
     "expires_at": null
+  },
+  {
+    "jti": "ac2a95d7-80ac-421e-b8ae-9309bed9f987",
+    "token_type": "access",
+    "revoked_at": "2026-05-20T15:34:54.995406",
+    "expires_at": null
+  },
+  {
+    "jti": "6f839add-e768-4e8b-9433-4be56b01b97f",
+    "token_type": "refresh",
+    "revoked_at": "2026-05-20T15:34:54.997042",
+    "expires_at": null
+  },
+  {
+    "jti": "6ed09572-d090-43c7-b91f-4bc658726022",
+    "token_type": "access",
+    "revoked_at": "2026-05-21T08:40:41.939801",
+    "expires_at": null
+  },
+  {
+    "jti": "0f35e928-d7a5-4561-8367-10328e2adeb2",
+    "token_type": "refresh",
+    "revoked_at": "2026-05-21T08:40:41.941655",
+    "expires_at": null
+  },
+  {
+    "jti": "9ec28460-3052-42c6-a2cc-ead3a1ba7313",
+    "token_type": "access",
+    "revoked_at": "2026-05-21T08:41:32.925530",
+    "expires_at": null
+  },
+  {
+    "jti": "651d75f4-0a9f-4808-a16d-6f50ebf1e87f",
+    "token_type": "refresh",
+    "revoked_at": "2026-05-21T08:41:32.928747",
+    "expires_at": null
+  },
+  {
+    "jti": "bb40e0b8-f714-4dbd-8f6c-0a46b9f71f06",
+    "token_type": "access",
+    "revoked_at": "2026-05-21T08:50:05.052250",
+    "expires_at": null
+  },
+  {
+    "jti": "c08f8996-3040-400f-b1db-9348166489bc",
+    "token_type": "refresh",
+    "revoked_at": "2026-05-21T08:50:05.054271",
+    "expires_at": null
+  },
+  {
+    "jti": "d423a76b-445a-47f0-bd26-afb8e3d45dcb",
+    "token_type": "access",
+    "revoked_at": "2026-05-21T08:51:20.037462",
+    "expires_at": null
+  },
+  {
+    "jti": "4ce97081-d3da-4cab-a412-8c2960a2d716",
+    "token_type": "refresh",
+    "revoked_at": "2026-05-21T08:51:20.038983",
+    "expires_at": null
+  },
+  {
+    "jti": "b61583cb-d9b2-4d86-a179-f2a53a3014ea",
+    "token_type": "access",
+    "revoked_at": "2026-05-22T12:15:52.786753",
+    "expires_at": null
+  },
+  {
+    "jti": "027e5305-e15e-4106-bfda-ad8feb83d0b6",
+    "token_type": "refresh",
+    "revoked_at": "2026-05-22T12:15:52.788435",
+    "expires_at": null
+  },
+  {
+    "jti": "4d63f15d-1ebc-47bb-b563-b4f29c125656",
+    "token_type": "access",
+    "revoked_at": "2026-05-22T12:33:59.968922",
+    "expires_at": null
+  },
+  {
+    "jti": "fd4352ef-9581-4b97-bc9a-ee86b38984ec",
+    "token_type": "refresh",
+    "revoked_at": "2026-05-22T12:33:59.971531",
+    "expires_at": null
   }
 ]
