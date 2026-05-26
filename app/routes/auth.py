@@ -174,7 +174,7 @@ def logout():
         sid = ws_handlers.active_connections.get(username)
         if sid:
             try:
-                socketio.disconnect(sid)
+                socketio.disconnect(sid) 
             except Exception:
                 # best-effort only
                 pass
