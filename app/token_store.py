@@ -1,89 +1,70 @@
-import json
 import os
 import threading
 from datetime import datetime
 
-TOKEN_BLOCKLIST_FILE = 'token_blocklist.json'
-# Allow configuring the blocklist path via env so deployments can opt to keep it ephemeral
-_BLOCKLIST_PATH = os.getenv('TOKEN_BLOCKLIST_PATH', TOKEN_BLOCKLIST_FILE)
+from app.postgres_store import execute, fetch_all, fetch_one
+
 _TOKEN_LOCK = threading.Lock()
 
 
-def _load_blocklist():
-    if not os.path.exists(_BLOCKLIST_PATH):
-        return []
-    try:
-        with open(_BLOCKLIST_PATH, 'r', encoding='utf-8') as file_handle:
-            data = json.load(file_handle)
-            return data if isinstance(data, list) else []
-    except Exception:
-        return []
-
-
-def _save_blocklist(items):
-    # Ensure directory exists
-    directory = os.path.dirname(_BLOCKLIST_PATH)
-    if directory and not os.path.exists(directory):
-        try:
-            os.makedirs(directory, exist_ok=True)
-        except Exception:
-            pass
-    with open(_BLOCKLIST_PATH, 'w', encoding='utf-8') as file_handle:
-        json.dump(items, file_handle, indent=2)
+def _ensure_table():
+    execute(
+        """
+        CREATE TABLE IF NOT EXISTS auth_token_blocklist (
+          jti TEXT PRIMARY KEY,
+          token_type TEXT,
+          revoked_at TIMESTAMPTZ,
+          expires_at TIMESTAMPTZ
+        )
+        """
+    )
 
 
 def revoke_token(jti, token_type='access', expires_at=None):
     if not jti:
         return
     with _TOKEN_LOCK:
-        items = _load_blocklist()
-        if any(item.get('jti') == jti for item in items):
-            return
-        items.append({
-            'jti': jti,
-            'token_type': token_type,
-            'revoked_at': datetime.utcnow().isoformat(),
-            'expires_at': expires_at,
-        })
-        _save_blocklist(items)
+        _ensure_table()
+        execute(
+            """
+            INSERT INTO auth_token_blocklist (jti, token_type, revoked_at, expires_at)
+            VALUES (%(jti)s, %(token_type)s, %(revoked_at)s, %(expires_at)s)
+            ON CONFLICT (jti) DO UPDATE SET
+                token_type = EXCLUDED.token_type,
+                revoked_at = EXCLUDED.revoked_at,
+                expires_at = EXCLUDED.expires_at
+            """,
+            {
+                'jti': jti,
+                'token_type': token_type,
+                'revoked_at': datetime.utcnow(),
+                'expires_at': expires_at,
+            }
+        )
 
 
 def is_token_revoked(jti):
     if not jti:
         return True
-    items = _load_blocklist()
-    return any(item.get('jti') == jti for item in items)
+    _ensure_table()
+    row = fetch_one('SELECT 1 FROM auth_token_blocklist WHERE jti = %(jti)s', {'jti': jti})
+    return bool(row)
 
 
 def cleanup_blocklist():
     with _TOKEN_LOCK:
-        items = _load_blocklist()
-        if not items:
-            return
-        now = datetime.utcnow()
-        kept = []
-        for item in items:
-            expires_at = item.get('expires_at')
-            if not expires_at:
-                kept.append(item)
-                continue
-            try:
-                expires_dt = datetime.fromisoformat(str(expires_at).replace('Z', '+00:00'))
-                if expires_dt > now:
-                    kept.append(item)
-            except Exception:
-                kept.append(item)
-        _save_blocklist(kept)
+        _ensure_table()
+        execute(
+            """
+            DELETE FROM auth_token_blocklist
+            WHERE expires_at IS NOT NULL AND expires_at <= %(now)s
+            """,
+            {'now': datetime.utcnow()},
+        )
 
 
 def clear_blocklist():
-    """Remove the persistent blocklist file entirely.
-
-    Useful for deployment scripts that want to reset authentication state.
-    """
+    """Remove all revoked tokens from the database."""
     with _TOKEN_LOCK:
-        try:
-            if os.path.exists(_BLOCKLIST_PATH):
-                os.remove(_BLOCKLIST_PATH)
-        except Exception:
-            pass
+        _ensure_table()
+        execute('DELETE FROM auth_token_blocklist')

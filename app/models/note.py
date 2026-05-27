@@ -1,51 +1,18 @@
 import base64
-import json
 import os
 import uuid
 from datetime import datetime, timedelta
 
-from app.storage import create_media_filename, store_media_bytes
+from app.storage import create_media_filename, delete_local_media_file, store_media_bytes, _storage_mode
+from app.postgres_store import execute, fetch_all, fetch_one, json_value
 
-DATA_ROOT = os.getenv('DATA_ROOT', '').strip()
-
-
-def _default_data_path(filename):
-    return os.path.join(DATA_ROOT, filename) if DATA_ROOT else filename
-
-
-NOTES_FILE = os.getenv('NOTES_FILE', _default_data_path('notes.json'))
-UPLOADS_FOLDER = os.getenv('NOTE_UPLOADS_FOLDER', _default_data_path('uploads/notes'))
-
+UPLOADS_FOLDER = os.getenv('NOTE_UPLOADS_FOLDER', 'uploads/notes')
 os.makedirs(UPLOADS_FOLDER, exist_ok=True)
-
-
-def _ensure_parent_dir(path):
-    directory = os.path.dirname(path)
-    if directory:
-        os.makedirs(directory, exist_ok=True)
 
 
 class Note:
     @staticmethod
-    def _load_notes():
-        if not os.path.exists(NOTES_FILE):
-            return []
-        try:
-            with open(NOTES_FILE, 'r') as file_handle:
-                return json.load(file_handle)
-        except Exception:
-            return []
-
-    @staticmethod
-    def _save_notes(notes):
-        _ensure_parent_dir(NOTES_FILE)
-        with open(NOTES_FILE, 'w') as file_handle:
-            json.dump(notes, file_handle, indent=2)
-
-    @staticmethod
     def upload_note(username, text_content='', media_base64=None, media_type='text'):
-        notes = Note._load_notes()
-
         if media_type not in ['text', 'image', 'video']:
             return None
 
@@ -74,9 +41,14 @@ class Note:
                     if generate_video_thumbnail(os.path.join(UPLOADS_FOLDER, filename), thumb_filepath):
                         with open(thumb_filepath, 'rb') as thumb_file:
                             thumbnail_url = store_media_bytes('notes', thumb_filename, thumb_file.read(), content_type='image/jpeg')
+                        if _storage_mode() == 'postgres':
+                            delete_local_media_file('notes', thumb_filename)
             except Exception as exception:
                 print(f"Error saving note media: {exception}")
                 return None
+
+            if _storage_mode() == 'postgres':
+                delete_local_media_file('notes', filename)
 
         note = {
             'id': str(uuid.uuid4()),
@@ -89,27 +61,47 @@ class Note:
             'viewers': [],
         }
 
-        notes.append(note)
-        Note._save_notes(notes)
+        execute(
+            """
+            INSERT INTO notes (
+                id, username, text_content, media_url, thumbnail_url,
+                media_type, timestamp, viewers
+            ) VALUES (
+                %(id)s, %(username)s, %(text_content)s, %(media_url)s, %(thumbnail_url)s,
+                %(media_type)s, %(timestamp)s, %(viewers)s
+            )
+            """,
+            {
+                **note,
+                'viewers': json_value([]),
+            }
+        )
         return note
 
     @staticmethod
     def get_active_notes():
-        notes = Note._load_notes()
-        active_notes = []
+        notes = []
         now = datetime.now()
-
-        for note in notes:
+        for row in fetch_all('SELECT * FROM notes ORDER BY timestamp DESC'):
             try:
-                note_time = datetime.fromisoformat(note['timestamp'])
-                if now - note_time < timedelta(hours=24):
-                    if 'viewers' not in note:
-                        note['viewers'] = []
-                    active_notes.append(note)
+                note_time = row.get('timestamp')
+                if not note_time:
+                    continue
+                age = now - note_time.replace(tzinfo=None) if hasattr(note_time, 'replace') else now - datetime.fromisoformat(str(note_time))
+                if age < timedelta(hours=24):
+                    notes.append({
+                        'id': row['id'],
+                        'username': row['username'],
+                        'text_content': row.get('text_content', ''),
+                        'media_url': row.get('media_url'),
+                        'thumbnail_url': row.get('thumbnail_url'),
+                        'media_type': row.get('media_type'),
+                        'timestamp': row.get('timestamp').isoformat() if row.get('timestamp') else '',
+                        'viewers': row.get('viewers') or [],
+                    })
             except Exception:
                 pass
-
-        return active_notes
+        return notes
 
     @staticmethod
     def get_user_notes(username):
@@ -117,35 +109,16 @@ class Note:
 
     @staticmethod
     def mark_note_viewed(note_id, viewer_username):
-        notes = Note._load_notes()
-
-        for note in notes:
-            if note['id'] == note_id:
-                if 'viewers' not in note:
-                    note['viewers'] = []
-
-                if not any(viewer.get('username') == viewer_username for viewer in note['viewers']):
-                    note['viewers'].append({
-                        'username': viewer_username,
-                        'timestamp': datetime.now().isoformat(),
-                    })
-                Note._save_notes(notes)
-                return True
-
-        return False
+        row = fetch_one('SELECT viewers FROM notes WHERE id = %(id)s', {'id': note_id})
+        if not row:
+            return False
+        viewers = row.get('viewers') or []
+        if not any(viewer.get('username') == viewer_username for viewer in viewers):
+            viewers.append({'username': viewer_username, 'timestamp': datetime.now().isoformat()})
+            execute('UPDATE notes SET viewers = %(viewers)s WHERE id = %(id)s', {'id': note_id, 'viewers': json_value(viewers)})
+        return True
 
     @staticmethod
     def cleanup_expired_notes():
-        notes = Note._load_notes()
-        now = datetime.now()
-        active_notes = []
-
-        for note in notes:
-            try:
-                note_time = datetime.fromisoformat(note['timestamp'])
-                if now - note_time < timedelta(hours=24):
-                    active_notes.append(note)
-            except Exception:
-                pass
-
-        Note._save_notes(active_notes)
+        cutoff = datetime.now() - timedelta(hours=24)
+        execute('DELETE FROM notes WHERE timestamp < %(cutoff)s', {'cutoff': cutoff})

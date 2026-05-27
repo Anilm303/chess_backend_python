@@ -1,28 +1,14 @@
-import json
-import os
-from datetime import datetime
-import uuid
 import base64
+import os
+import uuid
+from datetime import datetime
 
-from app.storage import create_media_filename, store_media_bytes
+from app.storage import create_media_filename, delete_local_media_file, store_media_bytes, _storage_mode
+from app.postgres_store import execute, fetch_all, fetch_one, json_value
 
-DATA_ROOT = os.getenv('DATA_ROOT', '').strip()
-
-
-def _default_data_path(filename):
-    return os.path.join(DATA_ROOT, filename) if DATA_ROOT else filename
-
-
-MESSAGES_FILE = os.getenv('MESSAGES_FILE', _default_data_path('messages.json'))
-UPLOADS_FOLDER = os.getenv('MESSAGE_UPLOADS_FOLDER', _default_data_path('uploads/messages'))
-
+UPLOADS_FOLDER = os.getenv('MESSAGE_UPLOADS_FOLDER', 'uploads/messages')
 os.makedirs(UPLOADS_FOLDER, exist_ok=True)
-
-
-def _ensure_parent_dir(path):
-    directory = os.path.dirname(path)
-    if directory:
-        os.makedirs(directory, exist_ok=True)
+MAX_MESSAGE_SIZE = int(os.getenv('MAX_MESSAGE_SIZE', str(10 * 1024 * 1024)))
 
 
 def _normalize_timestamp(value=None):
@@ -39,38 +25,24 @@ def _normalize_timestamp(value=None):
         return text
 
 
-MAX_MESSAGE_SIZE = int(os.getenv('MAX_MESSAGE_SIZE', str(10 * 1024 * 1024)))
-
-def get_messages():
-    """Load messages from JSON file"""
-    if os.path.exists(MESSAGES_FILE):
-        with open(MESSAGES_FILE, 'r') as f:
-            return json.load(f)
-    return {}
-
-def save_messages(messages):
-    """Save messages to JSON file"""
-    _ensure_parent_dir(MESSAGES_FILE)
-    with open(MESSAGES_FILE, 'w') as f:
-        json.dump(messages, f, indent=2)
-
 class Message:
     """Message model for one-to-one chat"""
+
     def __init__(self, sender, receiver, text='', message_type='text',
                  media_url=None, thumbnail_url=None, reply_to_id=None,
-                 timestamp=None):
+                 timestamp=None, status='sent', is_read=False, reactions=None):
         self.id = str(uuid.uuid4())
         self.sender = sender
         self.receiver = receiver
         self.text = text
-        self.message_type = message_type   # 'text', 'image', 'video'
+        self.message_type = message_type
         self.media_url = media_url
         self.thumbnail_url = thumbnail_url
-        self.reply_to_id = reply_to_id     # id of message being replied to
+        self.reply_to_id = reply_to_id
         self.timestamp = _normalize_timestamp(timestamp)
-        self.is_read = False
-        self.status = 'sent'
-        self.reactions = {}                # {username: [emoji, ...]}
+        self.status = status
+        self.is_read = is_read
+        self.reactions = reactions or {}
 
     def to_dict(self):
         return {
@@ -89,9 +61,56 @@ class Message:
         }
 
     @staticmethod
+    def _row_to_dict(row):
+        if not row:
+            return None
+        return {
+            'id': row['id'],
+            'sender': row['sender'],
+            'receiver': row['receiver'],
+            'text': row.get('text', ''),
+            'message_type': row.get('message_type', 'text'),
+            'media_url': row.get('media_url'),
+            'thumbnail_url': row.get('thumbnail_url'),
+            'reply_to_id': row.get('reply_to_id'),
+            'timestamp': row.get('timestamp').isoformat() if row.get('timestamp') else '',
+            'status': row.get('status', 'sent'),
+            'is_read': row.get('is_read', False),
+            'reactions': row.get('reactions') or {},
+        }
+
+    @staticmethod
+    def _insert_message(message):
+        execute(
+            """
+            INSERT INTO messages (
+                id, sender, receiver, message_type, text, media_url, thumbnail_url,
+                reply_to_id, timestamp, status, is_read, reactions
+            ) VALUES (
+                %(id)s, %(sender)s, %(receiver)s, %(message_type)s, %(text)s, %(media_url)s, %(thumbnail_url)s,
+                %(reply_to_id)s, %(timestamp)s, %(status)s, %(is_read)s, %(reactions)s
+            )
+            """,
+            {
+                'id': message.id,
+                'sender': message.sender,
+                'receiver': message.receiver,
+                'message_type': message.message_type,
+                'text': message.text.strip() if message.text else '',
+                'media_url': message.media_url,
+                'thumbnail_url': message.thumbnail_url,
+                'reply_to_id': message.reply_to_id,
+                'timestamp': message.timestamp,
+                'status': message.status,
+                'is_read': message.is_read,
+                'reactions': json_value(message.reactions or {}),
+            }
+        )
+        return message
+
+    @staticmethod
     def send_message(sender, receiver, text='', message_type='text',
                      media_base64=None, media_path=None, reply_to_id=None, timestamp=None):
-        """Send a message from sender to receiver"""
         from .user import User
 
         sender_user = User.get_by_username(sender)
@@ -121,7 +140,6 @@ class Message:
                     if len(media_bytes) > MAX_MESSAGE_SIZE:
                         return False, 'File too large'
                     media_url = store_media_bytes('messages', filename, media_bytes, content_type='video/mp4' if message_type == 'video' else 'image/jpeg')
-
                     if message_type == 'video':
                         from app.utils import generate_video_thumbnail
                         thumb_filename = f"{filename.split('.')[0]}_thumb.jpg"
@@ -129,6 +147,12 @@ class Message:
                         if generate_video_thumbnail(os.path.join(UPLOADS_FOLDER, filename), thumb_filepath):
                             with open(thumb_filepath, 'rb') as thumb_file:
                                 thumbnail_url = store_media_bytes('messages', thumb_filename, thumb_file.read(), content_type='image/jpeg')
+                            if _storage_mode() == 'postgres':
+                                delete_local_media_file('messages', thumb_filename)
+                        if _storage_mode() == 'postgres':
+                            delete_local_media_file('messages', filename)
+                    elif _storage_mode() == 'postgres':
+                        delete_local_media_file('messages', filename)
                 except Exception as e:
                     print(f"Error saving file: {e}")
                     return False, 'Failed to save media file'
@@ -137,20 +161,13 @@ class Message:
         else:
             return False, 'Invalid message type'
 
-        message = Message(sender, receiver, text.strip() if text else '',
-                          message_type, media_url, thumbnail_url, reply_to_id,
-                          timestamp=timestamp)
-
-        messages = get_messages()
-        messages[message.id] = message.to_dict()
-        save_messages(messages)
-
+        message = Message(sender, receiver, text.strip() if text else '', message_type, media_url, thumbnail_url, reply_to_id, timestamp=timestamp)
+        Message._insert_message(message)
         return True, message
 
     @staticmethod
     def send_message_bytes(sender, receiver, text='', message_type='text',
                            media_bytes=None, media_path=None, reply_to_id=None, timestamp=None):
-        """Send a message using raw file bytes instead of base64."""
         from .user import User
 
         sender_user = User.get_by_username(sender)
@@ -179,7 +196,6 @@ class Message:
                 filename = create_media_filename(extension)
                 try:
                     media_url = store_media_bytes('messages', filename, media_bytes, content_type='video/mp4' if message_type == 'video' else 'image/jpeg')
-
                     if message_type == 'video':
                         from app.utils import generate_video_thumbnail
                         thumb_filename = f"{filename.split('.')[0]}_thumb.jpg"
@@ -187,6 +203,12 @@ class Message:
                         if generate_video_thumbnail(os.path.join(UPLOADS_FOLDER, filename), thumb_filepath):
                             with open(thumb_filepath, 'rb') as thumb_file:
                                 thumbnail_url = store_media_bytes('messages', thumb_filename, thumb_file.read(), content_type='image/jpeg')
+                            if _storage_mode() == 'postgres':
+                                delete_local_media_file('messages', thumb_filename)
+                        if _storage_mode() == 'postgres':
+                            delete_local_media_file('messages', filename)
+                    elif _storage_mode() == 'postgres':
+                        delete_local_media_file('messages', filename)
                 except Exception as e:
                     print(f"Error saving file: {e}")
                     return False, 'Failed to save media file'
@@ -195,152 +217,185 @@ class Message:
         else:
             return False, 'Invalid message type'
 
-        message = Message(sender, receiver, text.strip() if text else '',
-                          message_type, media_url, thumbnail_url, reply_to_id,
-                          timestamp=timestamp)
-
-        messages = get_messages()
-        messages[message.id] = message.to_dict()
-        save_messages(messages)
-
+        message = Message(sender, receiver, text.strip() if text else '', message_type, media_url, thumbnail_url, reply_to_id, timestamp=timestamp)
+        Message._insert_message(message)
         return True, message
 
     @staticmethod
+    def get_messages():
+        return {row['id']: Message._row_to_dict(row) for row in fetch_all('SELECT * FROM messages ORDER BY timestamp')}
+
+    @staticmethod
     def react_to_message(message_id, reactor, emoji):
-        """Toggle an emoji reaction on a message. Returns updated reactions."""
-        messages = get_messages()
-        if message_id not in messages:
+        row = fetch_one('SELECT reactions FROM messages WHERE id = %(id)s', {'id': message_id})
+        if not row:
             return False, {}
-
-        msg = messages[message_id]
-        if 'reactions' not in msg:
-            msg['reactions'] = {}
-
-        user_reactions = msg['reactions'].get(reactor, [])
+        reactions = row.get('reactions') or {}
+        user_reactions = reactions.get(reactor, [])
         if emoji in user_reactions:
             user_reactions.remove(emoji)
         else:
             user_reactions.append(emoji)
-
         if user_reactions:
-            msg['reactions'][reactor] = user_reactions
+            reactions[reactor] = user_reactions
         else:
-            msg['reactions'].pop(reactor, None)
-
-        messages[message_id] = msg
-        save_messages(messages)
-        return True, msg['reactions']
+            reactions.pop(reactor, None)
+        execute('UPDATE messages SET reactions = %(reactions)s WHERE id = %(id)s', {'id': message_id, 'reactions': json_value(reactions)})
+        return True, reactions
 
     @staticmethod
     def delete_message(message_id, requestor_username):
-        """Unsend/Delete a message for everyone"""
-        messages = get_messages()
-        if message_id not in messages:
+        row = fetch_one('SELECT sender FROM messages WHERE id = %(id)s', {'id': message_id})
+        if not row:
             return False, 'Message not found'
-        
-        msg = messages[message_id]
-        if msg['sender'] != requestor_username:
+        if row['sender'] != requestor_username:
             return False, 'Unauthorized'
-            
-        # Update the message instead of actually remving it so history stays contiguous
-        msg['text'] = 'This message was unsent'
-        msg['message_type'] = 'deleted'
-        msg['media_url'] = None
-        msg['thumbnail_url'] = None
-        
-        messages[message_id] = msg
-        save_messages(messages)
-        return True, msg
+        execute("""
+            UPDATE messages
+            SET text = %(text)s, message_type = 'deleted', media_url = NULL, thumbnail_url = NULL
+            WHERE id = %(id)s
+        """, {'id': message_id, 'text': 'This message was unsent'})
+        return True, Message._row_to_dict(fetch_one('SELECT * FROM messages WHERE id = %(id)s', {'id': message_id}))
 
     @staticmethod
     def get_conversation(user1, user2):
-        messages = get_messages()
+        rows = fetch_all(
+            """
+            SELECT * FROM messages
+            WHERE (sender = %(user1)s AND receiver = %(user2)s)
+               OR (sender = %(user2)s AND receiver = %(user1)s)
+            ORDER BY timestamp
+            """,
+            {'user1': user1, 'user2': user2},
+        )
         conversation = []
-        for msg_data in messages.values():
-            if ((msg_data['sender'] == user1 and msg_data['receiver'] == user2) or
-                    (msg_data['sender'] == user2 and msg_data['receiver'] == user1)):
-                # Back-fill missing fields for old messages
-                if 'reactions' not in msg_data:
-                    msg_data['reactions'] = {}
-                if 'reply_to_id' not in msg_data:
-                    msg_data['reply_to_id'] = None
-                if 'status' not in msg_data:
-                    msg_data['status'] = 'seen' if msg_data.get('is_read') else 'sent'
-                conversation.append(msg_data)
-        conversation.sort(key=lambda x: x['timestamp'])
+        for row in rows:
+            msg = Message._row_to_dict(row)
+            if 'reactions' not in msg:
+                msg['reactions'] = {}
+            if 'reply_to_id' not in msg:
+                msg['reply_to_id'] = None
+            if 'status' not in msg:
+                msg['status'] = 'seen' if msg.get('is_read') else 'sent'
+            conversation.append(msg)
         return conversation
 
     @staticmethod
     def get_all_conversations(username):
-        messages = get_messages()
-        users_set = set()
-        for msg_data in messages.values():
-            if msg_data['sender'] == username:
-                users_set.add(msg_data['receiver'])
-            elif msg_data['receiver'] == username:
-                users_set.add(msg_data['sender'])
-        return sorted(list(users_set))
+        rows = fetch_all(
+            """
+            SELECT DISTINCT CASE
+                WHEN sender = %(username)s THEN receiver
+                ELSE sender
+            END AS other_user
+            FROM messages
+            WHERE sender = %(username)s OR receiver = %(username)s
+            ORDER BY other_user
+            """,
+            {'username': username},
+        )
+        return [row['other_user'] for row in rows]
 
     @staticmethod
     def unread_count_between(user1, user2):
-        messages = get_messages()
-        count = 0
-        for msg_data in messages.values():
-            if msg_data['sender'] == user2 and msg_data['receiver'] == user1 and not msg_data.get('is_read', False):
-                count += 1
-        return count
+        row = fetch_one(
+            """
+            SELECT COUNT(*)::int AS count
+            FROM messages
+            WHERE sender = %(sender)s AND receiver = %(receiver)s AND is_read = FALSE
+            """,
+            {'sender': user2, 'receiver': user1},
+        )
+        return row['count'] if row else 0
 
     @staticmethod
     def mark_conversation_as_read(current_user, other_user):
-        messages = get_messages()
+        rows = fetch_all(
+            """
+            SELECT id FROM messages
+            WHERE sender = %(sender)s AND receiver = %(receiver)s AND is_read = FALSE
+            """,
+            {'sender': other_user, 'receiver': current_user},
+        )
         changed_ids = []
-        for msg_data in messages.values():
-            if msg_data['sender'] == other_user and msg_data['receiver'] == current_user and not msg_data.get('is_read', False):
-                msg_data['is_read'] = True
-                msg_data['status'] = 'seen'
-                changed_ids.append(msg_data['id'])
-        if changed_ids:
-            save_messages(messages)
+        for row in rows:
+            changed_ids.append(row['id'])
+            execute("UPDATE messages SET is_read = TRUE, status = 'seen' WHERE id = %(id)s", {'id': row['id']})
         return changed_ids
 
     @staticmethod
     def get_last_message(user1, user2):
-        messages = get_messages()
-        relevant = []
-        for msg_data in messages.values():
-            if ((msg_data['sender'] == user1 and msg_data['receiver'] == user2) or
-                    (msg_data['sender'] == user2 and msg_data['receiver'] == user1)):
-                relevant.append(msg_data)
-        if not relevant:
-            return None
-        relevant.sort(key=lambda x: x['timestamp'], reverse=True)
-        return relevant[0]
+        row = fetch_one(
+            """
+            SELECT * FROM messages
+            WHERE (sender = %(user1)s AND receiver = %(user2)s)
+               OR (sender = %(user2)s AND receiver = %(user1)s)
+            ORDER BY timestamp DESC
+            LIMIT 1
+            """,
+            {'user1': user1, 'user2': user2},
+        )
+        return Message._row_to_dict(row) if row else None
 
     @staticmethod
     def mark_as_read(message_id):
-        messages = get_messages()
-        if message_id in messages:
-            messages[message_id]['is_read'] = True
-            messages[message_id]['status'] = 'seen'
-            save_messages(messages)
-            return messages[message_id]
-        return None
+        execute("UPDATE messages SET is_read = TRUE, status = 'seen' WHERE id = %(id)s", {'id': message_id})
+        row = fetch_one('SELECT * FROM messages WHERE id = %(id)s', {'id': message_id})
+        return Message._row_to_dict(row) if row else None
 
     @staticmethod
     def mark_as_delivered(message_id):
-        messages = get_messages()
-        if message_id in messages:
-            messages[message_id]['status'] = 'delivered'
-            save_messages(messages)
-            return messages[message_id]
-        return None
+        execute("UPDATE messages SET status = 'delivered' WHERE id = %(id)s", {'id': message_id})
+        row = fetch_one('SELECT * FROM messages WHERE id = %(id)s', {'id': message_id})
+        return Message._row_to_dict(row) if row else None
 
     @staticmethod
     def mark_as_seen(message_id):
-        messages = get_messages()
-        if message_id in messages:
-            messages[message_id]['is_read'] = True
-            messages[message_id]['status'] = 'seen'
-            save_messages(messages)
-            return messages[message_id]
-        return None
+        execute("UPDATE messages SET is_read = TRUE, status = 'seen' WHERE id = %(id)s", {'id': message_id})
+        row = fetch_one('SELECT * FROM messages WHERE id = %(id)s', {'id': message_id})
+        return Message._row_to_dict(row) if row else None
+
+
+def get_messages():
+    return Message.get_messages()
+
+
+def save_messages(messages):
+    for message_id, message_data in messages.items():
+        execute(
+            """
+            INSERT INTO messages (
+                id, sender, receiver, message_type, text, media_url, thumbnail_url,
+                reply_to_id, timestamp, status, is_read, reactions
+            ) VALUES (
+                %(id)s, %(sender)s, %(receiver)s, %(message_type)s, %(text)s, %(media_url)s, %(thumbnail_url)s,
+                %(reply_to_id)s, %(timestamp)s, %(status)s, %(is_read)s, %(reactions)s
+            )
+            ON CONFLICT (id) DO UPDATE SET
+                sender = EXCLUDED.sender,
+                receiver = EXCLUDED.receiver,
+                message_type = EXCLUDED.message_type,
+                text = EXCLUDED.text,
+                media_url = EXCLUDED.media_url,
+                thumbnail_url = EXCLUDED.thumbnail_url,
+                reply_to_id = EXCLUDED.reply_to_id,
+                timestamp = EXCLUDED.timestamp,
+                status = EXCLUDED.status,
+                is_read = EXCLUDED.is_read,
+                reactions = EXCLUDED.reactions
+            """,
+            {
+                'id': message_id,
+                'sender': message_data.get('sender'),
+                'receiver': message_data.get('receiver'),
+                'message_type': message_data.get('message_type'),
+                'text': message_data.get('text', ''),
+                'media_url': message_data.get('media_url'),
+                'thumbnail_url': message_data.get('thumbnail_url'),
+                'reply_to_id': message_data.get('reply_to_id'),
+                'timestamp': message_data.get('timestamp'),
+                'status': message_data.get('status', 'sent'),
+                'is_read': message_data.get('is_read', False),
+                'reactions': json_value(message_data.get('reactions', {})),
+            }
+        )

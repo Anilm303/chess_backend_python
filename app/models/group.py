@@ -1,58 +1,18 @@
-import json
 import base64
 import os
 import uuid
 from datetime import datetime
 
-GROUPS_FILE = os.getenv('GROUPS_FILE', 'groups.json')
-GROUP_MESSAGES_FILE = os.getenv('GROUP_MESSAGES_FILE', 'group_messages.json')
-DATA_ROOT = os.getenv('DATA_ROOT', '').strip()
+from app.postgres_store import execute, fetch_all, fetch_one, json_value
+from app.storage import create_media_filename, delete_local_media_file, store_media_bytes, _storage_mode
 
-
-def _default_data_path(filename):
-    return os.path.join(DATA_ROOT, filename) if DATA_ROOT else filename
-
-
-GROUPS_FILE = os.getenv('GROUPS_FILE', _default_data_path('groups.json'))
-GROUP_MESSAGES_FILE = os.getenv('GROUP_MESSAGES_FILE', _default_data_path('group_messages.json'))
-GROUP_CALL_HISTORY_FILE = os.getenv('GROUP_CALL_HISTORY_FILE', _default_data_path('group_call_history.json'))
-UPLOADS_FOLDER = os.getenv('GROUP_UPLOADS_FOLDER', _default_data_path(os.path.join('uploads', 'messages')))
-
-
-def _ensure_parent_dir(path):
-    directory = os.path.dirname(path)
-    if directory:
-        os.makedirs(directory, exist_ok=True)
-
-
-def _load_json(path, default):
-    if os.path.exists(path):
-        with open(path, 'r', encoding='utf-8') as file:
-            return json.load(file)
-    return default
-
-
-def _save_json(path, data):
-    _ensure_parent_dir(path)
-    with open(path, 'w', encoding='utf-8') as file:
-        json.dump(data, file, indent=2)
-
-
-def _normalize_timestamp(value=None):
-    if not value:
-        return datetime.utcnow().isoformat()
-    if isinstance(value, datetime):
-        return value.isoformat()
-    text = str(value).strip()
-    if not text:
-        return datetime.utcnow().isoformat()
-    try:
-        return datetime.fromisoformat(text.replace('Z', '+00:00')).isoformat()
-    except Exception:
-        return text
+UPLOADS_FOLDER = os.getenv('GROUP_UPLOADS_FOLDER', 'uploads/messages')
+os.makedirs(UPLOADS_FOLDER, exist_ok=True)
 
 
 class GroupChat:
+    """Group chat backed by PostgreSQL."""
+
     @staticmethod
     def create_group(name, creator, member_usernames, avatar=None):
         unique_members = sorted(set([creator, *member_usernames]))
@@ -60,96 +20,112 @@ class GroupChat:
             return False, 'A group must include at least 2 members'
 
         group_id = str(uuid.uuid4())
-        now = datetime.utcnow().isoformat()
-        groups = _load_json(GROUPS_FILE, {})
-        groups[group_id] = {
-            'id': group_id,
-            'name': name.strip() or 'Untitled Group',
-            'avatar': avatar,
-            'created_by': creator,
-            'admins': [creator],
-            'members': unique_members,
-            'created_at': now,
-            'updated_at': now,
-            'last_message': '',
-            'last_message_time': now,
-        }
-        _save_json(GROUPS_FILE, groups)
-        return True, groups[group_id]
+        now = datetime.utcnow()
+        execute(
+            """
+            INSERT INTO groups (
+                id, name, avatar, created_by, admins, members,
+                created_at, updated_at, last_message, last_message_time
+            ) VALUES (
+                %(id)s, %(name)s, %(avatar)s, %(created_by)s, %(admins)s, %(members)s,
+                %(created_at)s, %(updated_at)s, %(last_message)s, %(last_message_time)s
+            )
+            """,
+            {
+                'id': group_id,
+                'name': name.strip() or 'Untitled Group',
+                'avatar': avatar,
+                'created_by': creator,
+                'admins': json_value([creator]),
+                'members': json_value(unique_members),
+                'created_at': now,
+                'updated_at': now,
+                'last_message': '',
+                'last_message_time': now,
+            }
+        )
+        return True, GroupChat.get_group(group_id)
 
     @staticmethod
     def list_groups_for_user(username):
-        groups = _load_json(GROUPS_FILE, {})
-        return [group for group in groups.values() if username in group.get('members', [])]
+        return fetch_all(
+            """
+            SELECT * FROM groups
+            WHERE members ? %(username)s
+            ORDER BY COALESCE(last_message_time, created_at) DESC
+            """,
+            {'username': username},
+        )
 
     @staticmethod
     def get_group(group_id):
-        groups = _load_json(GROUPS_FILE, {})
-        return groups.get(group_id)
+        return fetch_one('SELECT * FROM groups WHERE id = %(id)s', {'id': group_id})
 
     @staticmethod
     def add_member(group_id, requester, member_username):
-        groups = _load_json(GROUPS_FILE, {})
-        group = groups.get(group_id)
+        group = GroupChat.get_group(group_id)
         if not group:
             return False, 'Group not found'
-        if requester not in group.get('admins', []):
+        if requester not in (group.get('admins') or []):
             return False, 'Only group admins can add members'
-        if member_username in group['members']:
+        members = set(group.get('members') or [])
+        if member_username in members:
             return False, 'User already in group'
-        group['members'].append(member_username)
-        group['updated_at'] = datetime.utcnow().isoformat()
-        _save_json(GROUPS_FILE, groups)
-        return True, group
+        members.add(member_username)
+        execute(
+            "UPDATE groups SET members = %(members)s, updated_at = %(updated_at)s WHERE id = %(id)s",
+            {'id': group_id, 'members': json_value(sorted(members)), 'updated_at': datetime.utcnow()},
+        )
+        return True, GroupChat.get_group(group_id)
 
     @staticmethod
     def remove_member(group_id, requester, member_username):
-        groups = _load_json(GROUPS_FILE, {})
-        group = groups.get(group_id)
+        group = GroupChat.get_group(group_id)
         if not group:
             return False, 'Group not found'
-        if requester not in group.get('admins', []):
+        if requester not in (group.get('admins') or []):
             return False, 'Only group admins can remove members'
-        if member_username not in group['members']:
+        if member_username not in (group.get('members') or []):
             return False, 'User is not a member'
         if member_username == group.get('created_by'):
             return False, 'Group creator cannot be removed'
-        group['members'] = [m for m in group['members'] if m != member_username]
-        group['admins'] = [a for a in group.get('admins', []) if a != member_username]
-        group['updated_at'] = datetime.utcnow().isoformat()
-        _save_json(GROUPS_FILE, groups)
-        return True, group
+        members = [m for m in (group.get('members') or []) if m != member_username]
+        admins = [a for a in (group.get('admins') or []) if a != member_username]
+        execute(
+            "UPDATE groups SET members = %(members)s, admins = %(admins)s, updated_at = %(updated_at)s WHERE id = %(id)s",
+            {'id': group_id, 'members': json_value(members), 'admins': json_value(admins), 'updated_at': datetime.utcnow()},
+        )
+        return True, GroupChat.get_group(group_id)
 
     @staticmethod
     def set_admin(group_id, requester, member_username, is_admin):
-        groups = _load_json(GROUPS_FILE, {})
-        group = groups.get(group_id)
+        group = GroupChat.get_group(group_id)
         if not group:
             return False, 'Group not found'
-        if requester not in group.get('admins', []):
+        if requester not in (group.get('admins') or []):
             return False, 'Only group admins can update admin role'
-        if member_username not in group.get('members', []):
+        if member_username not in (group.get('members') or []):
             return False, 'User is not a member'
 
-        admins = set(group.get('admins', []))
+        admins = set(group.get('admins') or [])
         if is_admin:
             admins.add(member_username)
         else:
             if member_username == group.get('created_by'):
                 return False, 'Group creator must remain admin'
             admins.discard(member_username)
-        group['admins'] = sorted(admins)
-        group['updated_at'] = datetime.utcnow().isoformat()
-        _save_json(GROUPS_FILE, groups)
-        return True, group
+        execute(
+            "UPDATE groups SET admins = %(admins)s, updated_at = %(updated_at)s WHERE id = %(id)s",
+            {'id': group_id, 'admins': json_value(sorted(admins)), 'updated_at': datetime.utcnow()},
+        )
+        return True, GroupChat.get_group(group_id)
 
     @staticmethod
     def send_group_message(group_id, sender, text, message_type='text', media_base64=None, media_bytes=None, timestamp=None):
-        groups = _load_json(GROUPS_FILE, {})
-        group = groups.get(group_id)
+        group = GroupChat.get_group(group_id)
         if not group:
             return False, 'Group not found'
-        if sender not in group.get('members', []):
+        if sender not in (group.get('members') or []):
             return False, 'Not a group member'
         if message_type == 'text' and not text.strip():
             return False, 'Message cannot be empty'
@@ -158,9 +134,8 @@ class GroupChat:
         thumbnail_url = None
         if message_type in ['image', 'video']:
             extension = 'mp4' if message_type == 'video' else 'jpg'
-            filename = f"{uuid.uuid4()}.{extension}"
+            filename = create_media_filename(extension)
             filepath = os.path.join(UPLOADS_FOLDER, filename)
-
             try:
                 if media_bytes is not None:
                     with open(filepath, 'wb') as file_handle:
@@ -170,9 +145,8 @@ class GroupChat:
                         file_handle.write(base64.b64decode(media_base64))
                 else:
                     return False, f'{message_type} data required'
-
-                media_url = f'/uploads/messages/{filename}'
-
+                with open(filepath, 'rb') as file_handle:
+                    media_url = store_media_bytes('messages', filename, file_handle.read(), content_type='video/mp4' if message_type == 'video' else 'image/jpeg')
                 if message_type == 'video':
                     try:
                         from app.utils import generate_video_thumbnail
@@ -180,16 +154,20 @@ class GroupChat:
                         thumb_filename = f"{filename.split('.')[0]}_thumb.jpg"
                         thumb_filepath = os.path.join(UPLOADS_FOLDER, thumb_filename)
                         if generate_video_thumbnail(filepath, thumb_filepath):
-                            thumbnail_url = f'/uploads/messages/{thumb_filename}'
+                            with open(thumb_filepath, 'rb') as thumb_file:
+                                thumbnail_url = store_media_bytes('messages', thumb_filename, thumb_file.read(), content_type='image/jpeg')
+                            if _storage_mode() == 'postgres':
+                                delete_local_media_file('messages', thumb_filename)
                     except Exception:
                         thumbnail_url = None
+                if _storage_mode() == 'postgres':
+                    delete_local_media_file('messages', filename)
             except Exception as exc:
                 print(f'Error saving group media: {exc}')
                 return False, 'Failed to save media file'
 
-        messages = _load_json(GROUP_MESSAGES_FILE, {})
         message_id = str(uuid.uuid4())
-        now = _normalize_timestamp(timestamp)
+        now = timestamp or datetime.utcnow().isoformat()
         message = {
             'id': message_id,
             'group_id': group_id,
@@ -201,15 +179,27 @@ class GroupChat:
             'timestamp': now,
             'seen_by': [sender],
         }
-        messages[message_id] = message
-        _save_json(GROUP_MESSAGES_FILE, messages)
+        execute(
+            """
+            INSERT INTO group_messages (
+                id, group_id, sender, text, message_type,
+                media_url, thumbnail_url, timestamp, seen_by
+            ) VALUES (
+                %(id)s, %(group_id)s, %(sender)s, %(text)s, %(message_type)s,
+                %(media_url)s, %(thumbnail_url)s, %(timestamp)s, %(seen_by)s
+            )
+            """,
+            {
+                **message,
+                'seen_by': json_value(message['seen_by']),
+            }
+        )
 
-        group['last_message'] = message['text'] if message['text'] else message_type.capitalize()
-        group['last_message_time'] = now
-        group['updated_at'] = now
-        groups[group_id] = group
-        _save_json(GROUPS_FILE, groups)
-
+        last_message = message['text'] if message['text'] else message_type.capitalize()
+        execute(
+            "UPDATE groups SET last_message = %(last_message)s, last_message_time = %(last_message_time)s, updated_at = %(updated_at)s WHERE id = %(id)s",
+            {'id': group_id, 'last_message': last_message, 'last_message_time': now, 'updated_at': now},
+        )
         return True, message
 
     @staticmethod
@@ -217,55 +207,85 @@ class GroupChat:
         group = GroupChat.get_group(group_id)
         if not group:
             return False, 'Group not found'
-        if requester not in group.get('members', []):
+        if requester not in (group.get('members') or []):
             return False, 'Not a group member'
 
-        messages = _load_json(GROUP_MESSAGES_FILE, {})
-        result = [m for m in messages.values() if m.get('group_id') == group_id]
-        result.sort(key=lambda item: item.get('timestamp', ''))
-        return True, result
+        rows = fetch_all(
+            'SELECT * FROM group_messages WHERE group_id = %(group_id)s ORDER BY timestamp',
+            {'group_id': group_id},
+        )
+        return True, [
+            {
+                'id': row['id'],
+                'group_id': row['group_id'],
+                'sender': row['sender'],
+                'text': row.get('text', ''),
+                'message_type': row.get('message_type', 'text'),
+                'media_url': row.get('media_url'),
+                'thumbnail_url': row.get('thumbnail_url'),
+                'timestamp': row.get('timestamp').isoformat() if row.get('timestamp') else '',
+                'seen_by': row.get('seen_by') or [],
+            }
+            for row in rows
+        ]
 
     @staticmethod
     def mark_group_seen(group_id, username):
-        messages = _load_json(GROUP_MESSAGES_FILE, {})
+        rows = fetch_all('SELECT id, seen_by FROM group_messages WHERE group_id = %(group_id)s', {'group_id': group_id})
         changed = False
-        for message in messages.values():
-            if message.get('group_id') != group_id:
-                continue
-            seen_by = set(message.get('seen_by', []))
+        for row in rows:
+            seen_by = set(row.get('seen_by') or [])
             if username not in seen_by:
                 seen_by.add(username)
-                message['seen_by'] = sorted(seen_by)
+                execute('UPDATE group_messages SET seen_by = %(seen_by)s WHERE id = %(id)s', {'id': row['id'], 'seen_by': json_value(sorted(seen_by))})
                 changed = True
-        if changed:
-            _save_json(GROUP_MESSAGES_FILE, messages)
         return changed
 
     @staticmethod
     def unread_count_for_group(group_id, username):
-        messages = _load_json(GROUP_MESSAGES_FILE, {})
-        count = 0
-        for message in messages.values():
-            if message.get('group_id') != group_id:
-                continue
-            if message.get('sender') == username:
-                continue
-            if username not in message.get('seen_by', []):
-                count += 1
-        return count
+        row = fetch_one(
+            """
+            SELECT COUNT(*)::int AS count
+            FROM group_messages
+            WHERE group_id = %(group_id)s
+              AND sender <> %(username)s
+              AND NOT (seen_by ? %(username)s)
+            """,
+            {'group_id': group_id, 'username': username},
+        )
+        return row['count'] if row else 0
 
     @staticmethod
     def log_call(group_id, started_by, call_type, participants, status='completed'):
-        history = _load_json(CALL_HISTORY_FILE, {})
         call_id = str(uuid.uuid4())
-        history[call_id] = {
+        now = datetime.utcnow().isoformat()
+        execute(
+            """
+            INSERT INTO group_call_history (
+                id, group_id, started_by, call_type, participants,
+                status, started_at, ended_at
+            ) VALUES (
+                %(id)s, %(group_id)s, %(started_by)s, %(call_type)s, %(participants)s,
+                %(status)s, %(started_at)s, %(ended_at)s
+            )
+            """,
+            {
+                'id': call_id,
+                'group_id': group_id,
+                'started_by': started_by,
+                'call_type': call_type,
+                'participants': json_value(participants),
+                'status': status,
+                'started_at': now,
+                'ended_at': now,
+            }
+        )
+        return {
             'id': call_id,
             'group_id': group_id,
             'started_by': started_by,
             'call_type': call_type,
             'participants': participants,
             'status': status,
-            'timestamp': datetime.utcnow().isoformat(),
+            'timestamp': now,
         }
-        _save_json(CALL_HISTORY_FILE, history)
-        return history[call_id]

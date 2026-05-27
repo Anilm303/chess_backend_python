@@ -137,9 +137,14 @@ class GameRoom:
             "maxPlayers": self.max_players,
             "playerCount": len(self.players),
             "playerIds": self.player_ids,
+            "players": [player.to_dict() for player in self.players.values()],
             "isStarted": self.is_started,
             "isFull": self.is_full,
             "createdAt": self.created_at.isoformat(),
+            "startedAt": self.started_at.isoformat() if self.started_at else None,
+            "spectators": list(self.spectators),
+            "lockedBy": self.locked_by,
+            "stateVersion": self.state_version,
         }
 
 class RoomManager:

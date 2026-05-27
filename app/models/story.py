@@ -1,53 +1,36 @@
-import json
-import os
-from datetime import datetime, timedelta
-import uuid
 import base64
+import os
+import uuid
+from datetime import datetime, timedelta
 
-from app.storage import create_media_filename, store_media_bytes
+from app.storage import create_media_filename, delete_local_media_file, store_media_bytes, _storage_mode
+from app.postgres_store import execute, fetch_all, fetch_one, json_value
 
-DATA_ROOT = os.getenv('DATA_ROOT', '').strip()
-
-
-def _default_data_path(filename):
-    return os.path.join(DATA_ROOT, filename) if DATA_ROOT else filename
-
-
-STORIES_FILE = os.getenv('STORIES_FILE', _default_data_path('stories.json'))
-UPLOADS_FOLDER = os.getenv('STORY_UPLOADS_FOLDER', _default_data_path('uploads/stories'))
-
+UPLOADS_FOLDER = os.getenv('STORY_UPLOADS_FOLDER', 'uploads/stories')
 os.makedirs(UPLOADS_FOLDER, exist_ok=True)
-
-
-def _ensure_parent_dir(path):
-    directory = os.path.dirname(path)
-    if directory:
-        os.makedirs(directory, exist_ok=True)
 
 
 class Story:
     """Model for user stories (status updates)"""
 
     @staticmethod
-    def _load_stories():
-        if not os.path.exists(STORIES_FILE):
-            return []
-        try:
-            with open(STORIES_FILE, 'r') as f:
-                return json.load(f)
-        except:
-            return []
-
-    @staticmethod
-    def _save_stories(stories):
-        _ensure_parent_dir(STORIES_FILE)
-        with open(STORIES_FILE, 'w') as f:
-            json.dump(stories, f, indent=2)
+    def _row_to_story(row):
+        if not row:
+            return None
+        return {
+            'id': row['id'],
+            'username': row['username'],
+            'media_url': row.get('media_url'),
+            'thumbnail_url': row.get('thumbnail_url'),
+            'media_type': row.get('media_type'),
+            'timestamp': row.get('timestamp').isoformat() if row.get('timestamp') else '',
+            'viewers': row.get('viewers') or [],
+            'reactions': row.get('reactions') or {},
+            'reaction_details': row.get('reaction_details') or {},
+        }
 
     @staticmethod
     def upload_story(username, media_base64, media_type):
-        stories = Story._load_stories()
-
         extension = 'mp4' if media_type == 'video' else 'jpg'
         filename = create_media_filename(extension)
 
@@ -86,8 +69,13 @@ class Story:
                             thumb_file.read(),
                             content_type='image/jpeg',
                         )
+                    if _storage_mode() == 'postgres':
+                        delete_local_media_file('stories', thumb_filename)
             except Exception as exception:
                 print(f"⚠️ Thumbnail generation error (non-blocking): {exception}")
+
+        if _storage_mode() == 'postgres':
+            delete_local_media_file('stories', filename)
 
         story = {
             'id': story_id,
@@ -101,15 +89,28 @@ class Story:
             'reaction_details': {},
         }
 
-        stories.append(story)
-        Story._save_stories(stories)
+        execute(
+            """
+            INSERT INTO stories (
+                id, username, media_url, thumbnail_url, media_type,
+                timestamp, viewers, reactions, reaction_details
+            ) VALUES (
+                %(id)s, %(username)s, %(media_url)s, %(thumbnail_url)s, %(media_type)s,
+                %(timestamp)s, %(viewers)s, %(reactions)s, %(reaction_details)s
+            )
+            """,
+            {
+                **story,
+                'viewers': json_value([]),
+                'reactions': json_value({}),
+                'reaction_details': json_value({}),
+            }
+        )
         return story
 
     @staticmethod
     def upload_story_bytes(username, media_bytes, media_type):
         """Upload raw bytes (used by multipart form uploads)."""
-        stories = Story._load_stories()
-
         extension = 'mp4' if media_type == 'video' else 'jpg'
         filename = create_media_filename(extension)
 
@@ -144,10 +145,15 @@ class Story:
                             content_type='image/jpeg',
                         )
                     print("✅ Thumbnail generated successfully")
+                    if _storage_mode() == 'postgres':
+                        delete_local_media_file('stories', thumb_filename)
                 else:
                     print("⚠️ Thumbnail generation returned False, continuing without thumbnail")
             except Exception as exception:
                 print(f"⚠️ Thumbnail generation error (non-blocking): {exception}")
+
+        if _storage_mode() == 'postgres':
+            delete_local_media_file('stories', filename)
 
         story = {
             'id': story_id,
@@ -162,141 +168,100 @@ class Story:
         }
 
         try:
-            stories.append(story)
-            Story._save_stories(stories)
-            print(f"✅ Story saved to stories.json: {story_id}")
+            execute(
+                """
+                INSERT INTO stories (
+                    id, username, media_url, thumbnail_url, media_type,
+                    timestamp, viewers, reactions, reaction_details
+                ) VALUES (
+                    %(id)s, %(username)s, %(media_url)s, %(thumbnail_url)s, %(media_type)s,
+                    %(timestamp)s, %(viewers)s, %(reactions)s, %(reaction_details)s
+                )
+                """,
+                {
+                    **story,
+                    'viewers': json_value([]),
+                    'reactions': json_value({}),
+                    'reaction_details': json_value({}),
+                }
+            )
+            print(f"✅ Story saved to PostgreSQL: {story_id}")
             return story
         except Exception as exception:
-            print(f"❌ Error saving story to file: {exception}")
+            print(f"❌ Error saving story to DB: {exception}")
             return None
 
     @staticmethod
     def get_active_stories():
-        stories = Story._load_stories()
+        rows = fetch_all('SELECT * FROM stories ORDER BY timestamp DESC')
         active = []
         now = datetime.now()
-
-        for story in stories:
+        for row in rows:
             try:
-                story_time = datetime.fromisoformat(story['timestamp'])
-                age = now - story_time
+                story_time = row.get('timestamp')
+                if not story_time:
+                    continue
+                age = now - story_time.replace(tzinfo=None) if hasattr(story_time, 'replace') else now - datetime.fromisoformat(str(story_time))
                 if age < timedelta(hours=24):
-                    # Migrate old format to new format
-                    if 'viewed_by' in story and 'viewers' not in story:
-                        story['viewers'] = [{'username': u, 'timestamp': story['timestamp']} for u in story['viewed_by']]
-                        del story['viewed_by']
-                    
-                    # Ensure all required fields exist
-                    if 'viewers' not in story:
-                        story['viewers'] = []
-                    if 'reactions' not in story:
-                        story['reactions'] = {}
-                    if 'reaction_details' not in story:
-                        story['reaction_details'] = {}
-                    
-                    active.append(story)
-            except:
+                    active.append(Story._row_to_story(row))
+            except Exception:
                 pass
-
         return active
 
     @staticmethod
     def get_user_stories(username):
-        all_stories = Story.get_active_stories()
-        return [s for s in all_stories if s['username'] == username]
+        return [s for s in Story.get_active_stories() if s['username'] == username]
 
     @staticmethod
     def mark_story_viewed(story_id, viewer_username):
-        stories = Story._load_stories()
-
-        for story in stories:
-            if story['id'] == story_id:
-                # Ensure viewers list exists and is updated format
-                if 'viewers' not in story:
-                    story['viewers'] = []
-                if 'viewed_by' in story:
-                    del story['viewed_by']  # Remove old format
-                
-                # Check if viewer already exists
-                viewer_exists = any(v.get('username') == viewer_username for v in story['viewers'])
-                if not viewer_exists:
-                    story['viewers'].append({
-                        'username': viewer_username,
-                        'timestamp': datetime.now().isoformat(),
-                    })
-                Story._save_stories(stories)
-                return True
-
-        return False
+        row = fetch_one('SELECT viewers FROM stories WHERE id = %(id)s', {'id': story_id})
+        if not row:
+            return False
+        viewers = row.get('viewers') or []
+        if not any(v.get('username') == viewer_username for v in viewers):
+            viewers.append({'username': viewer_username, 'timestamp': datetime.now().isoformat()})
+            execute('UPDATE stories SET viewers = %(viewers)s WHERE id = %(id)s', {'id': story_id, 'viewers': json_value(viewers)})
+        return True
 
     @staticmethod
     def react_to_story(story_id, reactor_username, emoji):
-        """Add or remove a reaction emoji on a story. Toggling same emoji removes it."""
-        stories = Story._load_stories()
+        row = fetch_one('SELECT username, reactions, reaction_details FROM stories WHERE id = %(id)s', {'id': story_id})
+        if not row:
+            return False, {}, {}, None
+        reactions = row.get('reactions') or {}
+        reaction_details = row.get('reaction_details') or {}
 
-        for story in stories:
-            if story['id'] == story_id:
-                if 'reactions' not in story:
-                    story['reactions'] = {}
-                if 'reaction_details' not in story:
-                    story['reaction_details'] = {}
-                
-                if story['reactions'].get(reactor_username) == emoji:
-                    # Toggle off
-                    del story['reactions'][reactor_username]
-                    if reactor_username in story['reaction_details']:
-                        del story['reaction_details'][reactor_username]
-                else:
-                    story['reactions'][reactor_username] = emoji
-                    story['reaction_details'][reactor_username] = {
-                        'emoji': emoji,
-                        'timestamp': datetime.now().isoformat(),
-                    }
-                Story._save_stories(stories)
-                return True, story['reactions'], story['reaction_details'], story['username']
-
-        return False, {}, {}, None
+        if reactions.get(reactor_username) == emoji:
+            reactions.pop(reactor_username, None)
+            reaction_details.pop(reactor_username, None)
+        else:
+            reactions[reactor_username] = emoji
+            reaction_details[reactor_username] = {
+                'emoji': emoji,
+                'timestamp': datetime.now().isoformat(),
+            }
+        execute(
+            'UPDATE stories SET reactions = %(reactions)s, reaction_details = %(reaction_details)s WHERE id = %(id)s',
+            {'id': story_id, 'reactions': json_value(reactions), 'reaction_details': json_value(reaction_details)},
+        )
+        return True, reactions, reaction_details, row.get('username')
 
     @staticmethod
     def get_story_reactions(story_id):
-        """Get all reactions for a story as {username: emoji}"""
-        stories = Story._load_stories()
-        for story in stories:
-            if story['id'] == story_id:
-                return story.get('reactions', {})
-        return {}
+        row = fetch_one('SELECT reactions FROM stories WHERE id = %(id)s', {'id': story_id})
+        return row.get('reactions', {}) if row else {}
 
     @staticmethod
     def get_story_viewers(story_id):
-        """Get list of viewers for a story with timestamps"""
-        stories = Story._load_stories()
-        for story in stories:
-            if story['id'] == story_id:
-                return story.get('viewers', [])
-        return []
+        row = fetch_one('SELECT viewers FROM stories WHERE id = %(id)s', {'id': story_id})
+        return row.get('viewers', []) if row else []
 
     @staticmethod
     def get_story_reaction_details(story_id):
-        """Get detailed reaction info {username: {emoji: str, timestamp: str}}"""
-        stories = Story._load_stories()
-        for story in stories:
-            if story['id'] == story_id:
-                return story.get('reaction_details', {})
-        return {}
+        row = fetch_one('SELECT reaction_details FROM stories WHERE id = %(id)s', {'id': story_id})
+        return row.get('reaction_details', {}) if row else {}
 
     @staticmethod
     def cleanup_expired_stories():
-        stories = Story._load_stories()
         now = datetime.now()
-        active_stories = []
-
-        for story in stories:
-            try:
-                story_time = datetime.fromisoformat(story['timestamp'])
-                age = now - story_time
-                if age < timedelta(hours=24):
-                    active_stories.append(story)
-            except:
-                pass
-
-        Story._save_stories(active_stories)
+        execute('DELETE FROM stories WHERE timestamp < %(cutoff)s', {'cutoff': now - timedelta(hours=24)})

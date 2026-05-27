@@ -1,70 +1,32 @@
-import json
 import os
 from datetime import datetime
 from werkzeug.security import generate_password_hash, check_password_hash
 
-# Simple in-memory user storage (replace with database in production)
-DATA_ROOT = os.getenv('DATA_ROOT', '').strip()
+from app.postgres_store import execute, execute_returning, fetch_all, fetch_one, json_value
 
-
-def _default_data_path(filename):
-    return os.path.join(DATA_ROOT, filename) if DATA_ROOT else filename
-
-
-USERS_FILE = os.getenv('USERS_FILE', _default_data_path('users.json'))
 ONLINE_USERS = {}  # Track online users and their socket IDs
 
 
-def _ensure_parent_dir(path):
-    directory = os.path.dirname(path)
-    if directory:
-        os.makedirs(directory, exist_ok=True)
-
-def get_users():
-    """Load users from JSON file"""
-    if os.path.exists(USERS_FILE):
-        with open(USERS_FILE, 'r') as f:
-            return json.load(f)
-    return {}
-
-def save_users(users):
-    """Save users to JSON file"""
-    _ensure_parent_dir(USERS_FILE)
-    # Write atomically to avoid corruption
-    tmp_path = USERS_FILE + '.tmp'
-    with open(tmp_path, 'w') as f:
-        json.dump(users, f, indent=2)
-    os.replace(tmp_path, USERS_FILE)
-
-    # Trigger background upload to Hugging Face (if configured)
-    try:
-        # import here to avoid circular import at module load
-        from app import hf_sync  # type: ignore
-        hf_sync.upload_users_async(USERS_FILE, commit_message='Update users.json from backend')
-    except Exception:
-        # Log but do not raise from model save
-        try:
-            import logging
-            logging.getLogger(__name__).exception('HF upload trigger failed')
-        except Exception:
-            pass
-
 class User:
     """User model with profile support"""
-    def __init__(self, username, email, first_name, last_name, password_hash, profile_image=None, bio=None):
+
+    def __init__(self, username, email, first_name, last_name, password_hash,
+                 profile_image=None, bio=None, fcm_token=None, created_at=None,
+                 last_seen=None, friends=None, friend_requests=None):
         self.username = username
         self.email = email
         self.first_name = first_name
         self.last_name = last_name
         self.password_hash = password_hash
-        self.profile_image = profile_image  # Base64 or file path
+        self.profile_image = profile_image
         self.bio = bio or ""
-        self.fcm_token = None
-        self.created_at = datetime.utcnow().isoformat()
-        self.last_seen = datetime.utcnow().isoformat()
-    
+        self.fcm_token = fcm_token
+        self.created_at = created_at or datetime.utcnow().isoformat()
+        self.last_seen = last_seen or datetime.utcnow().isoformat()
+        self.friends = friends or []
+        self.friend_requests = friend_requests or []
+
     def to_dict(self, include_password=False):
-        """Convert user to dictionary"""
         data = {
             'username': self.username,
             'email': self.email,
@@ -72,157 +34,231 @@ class User:
             'last_name': self.last_name,
             'profile_image': self.profile_image,
             'bio': self.bio,
-            'fcm_token': getattr(self, 'fcm_token', None),
+            'fcm_token': self.fcm_token,
             'created_at': self.created_at,
             'last_seen': self.last_seen,
+            'friends': self.friends,
+            'friend_requests': self.friend_requests,
             'is_online': ONLINE_USERS.get(self.username) is not None,
         }
         if include_password:
             data['password_hash'] = self.password_hash
         return data
-    
+
+    @staticmethod
+    def _row_to_user(row):
+        if not row:
+            return None
+        return User(
+            row['username'],
+            row.get('email'),
+            row.get('first_name'),
+            row.get('last_name'),
+            row.get('password_hash'),
+            row.get('profile_image'),
+            row.get('bio'),
+            row.get('fcm_token'),
+            row.get('created_at').isoformat() if row.get('created_at') else None,
+            row.get('last_seen').isoformat() if row.get('last_seen') else None,
+            row.get('friends') or [],
+            row.get('friend_requests') or [],
+        )
+
     @staticmethod
     def register(username, email, first_name, last_name, password):
         """Register a new user"""
-        users = get_users()
-        
-        # Check if user exists
-        if username in users:
+        if User.get_by_username(username):
             return False, 'Username already exists'
-        
-        if any(user['email'] == email for user in users.values()):
+
+        if any(user.get('email') == email for user in get_users().values()):
             return False, 'Email already registered'
-        
-        # Create new user
+
         password_hash = generate_password_hash(password)
-        user = User(username, email, first_name, last_name, password_hash)
-        users[username] = {
-            'username': user.username,
-            'email': user.email,
-            'first_name': user.first_name,
-            'last_name': user.last_name,
-            'password_hash': user.password_hash,
-            'profile_image': user.profile_image,
-            'bio': user.bio,
-            'created_at': user.created_at,
-            'last_seen': user.last_seen,
-        }
-        
-        save_users(users)
-        return True, user
-    
+        now = datetime.utcnow()
+        query = """
+            INSERT INTO users (
+                username, email, first_name, last_name, password_hash,
+                profile_image, bio, fcm_token, friends, friend_requests,
+                created_at, last_seen
+            ) VALUES (
+                %(username)s, %(email)s, %(first_name)s, %(last_name)s, %(password_hash)s,
+                %(profile_image)s, %(bio)s, %(fcm_token)s,
+                %(friends)s, %(friend_requests)s,
+                %(created_at)s, %(last_seen)s
+            )
+        """
+        execute(query, {
+            'username': username,
+            'email': email,
+            'first_name': first_name,
+            'last_name': last_name,
+            'password_hash': password_hash,
+            'profile_image': None,
+            'bio': '',
+            'fcm_token': None,
+            'friends': json_value([]),
+            'friend_requests': json_value([]),
+            'created_at': now,
+            'last_seen': now,
+        })
+        return True, User.get_by_username(username)
+
     @staticmethod
     def login(username, password):
         """Authenticate user"""
-        users = get_users()
-        
-        if username not in users:
+        user = User.get_by_username(username)
+        if not user:
             return False, 'Invalid credentials'
-        
-        user_data = users[username]
-        if not check_password_hash(user_data['password_hash'], password):
+        if not check_password_hash(user.password_hash, password):
             return False, 'Invalid credentials'
-        
-        return True, User(
-            user_data['username'],
-            user_data['email'],
-            user_data['first_name'],
-            user_data['last_name'],
-            user_data['password_hash'],
-            user_data.get('profile_image'),
-            user_data.get('bio')
-        )
-    
+        return True, user
+
     @staticmethod
     def get_by_username(username):
         """Get user by username"""
-        users = get_users()
-        
-        if username not in users:
-            return None
-        
-        user_data = users[username]
-        return User(
-            user_data['username'],
-            user_data['email'],
-            user_data['first_name'],
-            user_data['last_name'],
-            user_data['password_hash'],
-            user_data.get('profile_image'),
-            user_data.get('bio')
+        row = fetch_one(
+            "SELECT * FROM users WHERE username = %(username)s",
+            {'username': username},
         )
-    
+        return User._row_to_user(row)
+
     @staticmethod
     def get_all_users():
         """Get all registered users with online status"""
-        users = get_users()
+        rows = fetch_all("SELECT * FROM users ORDER BY username")
+        users = {}
+        for row in rows:
+            users[row['username']] = {
+                'username': row['username'],
+                'email': row.get('email'),
+                'first_name': row.get('first_name', ''),
+                'last_name': row.get('last_name', ''),
+                'password_hash': row.get('password_hash'),
+                'profile_image': row.get('profile_image'),
+                'bio': row.get('bio', ''),
+                'fcm_token': row.get('fcm_token'),
+                'created_at': row.get('created_at').isoformat() if row.get('created_at') else None,
+                'last_seen': row.get('last_seen').isoformat() if row.get('last_seen') else '',
+                'friends': row.get('friends') or [],
+                'friend_requests': row.get('friend_requests') or [],
+            }
         return users
-    
+
     @staticmethod
     def update_profile(username, first_name=None, last_name=None, bio=None, profile_image=None):
         """Update user profile information"""
-        users = get_users()
-        
-        if username not in users:
+        user = User.get_by_username(username)
+        if not user:
             return False, 'User not found'
-        
-        user_data = users[username]
-        
-        if first_name is not None:
-            user_data['first_name'] = first_name
-        if last_name is not None:
-            user_data['last_name'] = last_name
-        if bio is not None:
-            user_data['bio'] = bio
-        if profile_image is not None:
-            user_data['profile_image'] = profile_image
-        
-        save_users(users)
+
+        query = """
+            UPDATE users
+            SET first_name = COALESCE(%(first_name)s, first_name),
+                last_name = COALESCE(%(last_name)s, last_name),
+                bio = COALESCE(%(bio)s, bio),
+                profile_image = COALESCE(%(profile_image)s, profile_image)
+            WHERE username = %(username)s
+        """
+        execute(query, {
+            'username': username,
+            'first_name': first_name,
+            'last_name': last_name,
+            'bio': bio,
+            'profile_image': profile_image,
+        })
         return True, 'Profile updated'
-    
+
     @staticmethod
     def set_fcm_token(username, token):
         """Update user's FCM token"""
-        users = get_users()
-        if username in users:
-            users[username]['fcm_token'] = token
-            save_users(users)
-            return True
-        return False
+        rowcount = execute(
+            "UPDATE users SET fcm_token = %(token)s WHERE username = %(username)s",
+            {'username': username, 'token': token},
+        )
+        return rowcount > 0
 
     @staticmethod
     def get_fcm_token(username):
         """Get user's FCM token"""
-        users = get_users()
-        if username in users:
-            return users[username].get('fcm_token')
-        return None
-    
+        row = fetch_one(
+            "SELECT fcm_token FROM users WHERE username = %(username)s",
+            {'username': username},
+        )
+        return row.get('fcm_token') if row else None
+
     @staticmethod
     def set_online(username, socket_id=None):
         """Mark user as online"""
         ONLINE_USERS[username] = socket_id or True
-        users = get_users()
-        if username in users:
-            users[username]['last_seen'] = datetime.utcnow().isoformat()
-            save_users(users)
-    
+        execute(
+            "UPDATE users SET last_seen = %(last_seen)s WHERE username = %(username)s",
+            {'username': username, 'last_seen': datetime.utcnow()},
+        )
+
     @staticmethod
     def set_offline(username):
         """Mark user as offline"""
-        if username in ONLINE_USERS:
-            del ONLINE_USERS[username]
-        users = get_users()
-        if username in users:
-            users[username]['last_seen'] = datetime.utcnow().isoformat()
-            save_users(users)
-    
+        ONLINE_USERS.pop(username, None)
+        execute(
+            "UPDATE users SET last_seen = %(last_seen)s WHERE username = %(username)s",
+            {'username': username, 'last_seen': datetime.utcnow()},
+        )
+
     @staticmethod
     def is_online(username):
         """Check if user is online"""
         return ONLINE_USERS.get(username) is not None
-    
+
     @staticmethod
     def get_online_users():
         """Get list of online users"""
         return list(ONLINE_USERS.keys())
+
+
+# Compatibility helpers expected by routes and websocket code.
+def get_users():
+    return User.get_all_users()
+
+
+def save_users(users):
+    """Upsert a users dict into PostgreSQL."""
+    for username, user_data in users.items():
+        execute(
+            """
+            INSERT INTO users (
+                username, email, first_name, last_name, password_hash,
+                profile_image, bio, fcm_token, friends, friend_requests,
+                created_at, last_seen
+            ) VALUES (
+                %(username)s, %(email)s, %(first_name)s, %(last_name)s, %(password_hash)s,
+                %(profile_image)s, %(bio)s, %(fcm_token)s,
+                %(friends)s, %(friend_requests)s,
+                %(created_at)s, %(last_seen)s
+            )
+            ON CONFLICT (username) DO UPDATE SET
+                email = EXCLUDED.email,
+                first_name = EXCLUDED.first_name,
+                last_name = EXCLUDED.last_name,
+                password_hash = EXCLUDED.password_hash,
+                profile_image = EXCLUDED.profile_image,
+                bio = EXCLUDED.bio,
+                fcm_token = EXCLUDED.fcm_token,
+                friends = EXCLUDED.friends,
+                friend_requests = EXCLUDED.friend_requests,
+                last_seen = EXCLUDED.last_seen
+            """,
+            {
+                'username': username,
+                'email': user_data.get('email'),
+                'first_name': user_data.get('first_name'),
+                'last_name': user_data.get('last_name'),
+                'password_hash': user_data.get('password_hash'),
+                'profile_image': user_data.get('profile_image'),
+                'bio': user_data.get('bio', ''),
+                'fcm_token': user_data.get('fcm_token'),
+                'friends': json_value(user_data.get('friends', [])),
+                'friend_requests': json_value(user_data.get('friend_requests', [])),
+                'created_at': user_data.get('created_at') or datetime.utcnow(),
+                'last_seen': user_data.get('last_seen') or datetime.utcnow(),
+            }
+        )

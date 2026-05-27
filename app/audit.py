@@ -1,21 +1,37 @@
-import json
 from datetime import datetime
-import os
 
-LOG_DIR = os.path.join(os.path.dirname(__file__), '..', 'logs')
-LOG_FILE = os.path.join(LOG_DIR, 'audit.log')
+from app.postgres_store import execute, json_value
 
-os.makedirs(LOG_DIR, exist_ok=True)
+
+def _ensure_table() -> None:
+    execute(
+        """
+        CREATE TABLE IF NOT EXISTS audit_events (
+          id BIGSERIAL PRIMARY KEY,
+          event_type TEXT NOT NULL,
+          payload JSONB,
+          created_at TIMESTAMPTZ DEFAULT now()
+        )
+        """
+    )
 
 def audit_event(event_type: str, payload: dict) -> None:
-    entry = {
-        'ts': datetime.utcnow().isoformat() + 'Z',
-        'type': event_type,
-        'payload': payload,
-    }
     try:
-        with open(LOG_FILE, 'a', encoding='utf-8') as f:
-            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+        _ensure_table()
+        execute(
+            """
+            INSERT INTO audit_events (event_type, payload, created_at)
+            VALUES (%(event_type)s, %(payload)s, %(created_at)s)
+            """,
+            {
+                'event_type': event_type,
+                'payload': json_value({
+                    'ts': datetime.utcnow().isoformat() + 'Z',
+                    'payload': payload,
+                }),
+                'created_at': datetime.utcnow(),
+            },
+        )
     except Exception:
         # avoid raising in production paths
         pass

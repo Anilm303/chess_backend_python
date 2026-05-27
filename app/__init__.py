@@ -1,7 +1,9 @@
+import io
 import os
 from datetime import timedelta
+from textwrap import dedent
 
-from flask import Flask, jsonify, send_from_directory
+from flask import Flask, abort, jsonify, send_file, send_from_directory
 from flask_cors import CORS
 from flask_jwt_extended import JWTManager
 from flask_socketio import SocketIO
@@ -13,6 +15,136 @@ load_dotenv(find_dotenv(usecwd=True))
 # Initialize SocketIO globally.
 # Use threading mode so the backend runs on Python 3.13 / Windows without eventlet.
 socketio = SocketIO(cors_allowed_origins="*", async_mode="threading")
+
+
+def _build_openapi_spec(base_url: str = ""):
+    return {
+        "openapi": "3.0.3",
+        "info": {
+            "title": "Chess Backend API",
+            "version": "1.0.0",
+            "description": "REST API for authentication, messaging, notes, stories, uploads, and real-time chat.",
+        },
+        "servers": [{"url": base_url or "/"}],
+        "paths": {
+            "/api/auth/register": {
+                "post": {
+                    "summary": "Register user",
+                    "requestBody": {
+                        "required": True,
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "required": ["username", "email", "first_name", "last_name", "password"],
+                                    "properties": {
+                                        "username": {"type": "string"},
+                                        "email": {"type": "string"},
+                                        "first_name": {"type": "string"},
+                                        "last_name": {"type": "string"},
+                                        "password": {"type": "string"},
+                                    },
+                                }
+                            }
+                        },
+                    },
+                    "responses": {
+                        "201": {"description": "User registered successfully"},
+                        "400": {"description": "Validation error"},
+                    },
+                }
+            },
+            "/api/auth/login": {
+                "post": {
+                    "summary": "Login user",
+                    "requestBody": {
+                        "required": True,
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "required": ["username", "password"],
+                                    "properties": {
+                                        "username": {"type": "string"},
+                                        "password": {"type": "string"},
+                                    },
+                                }
+                            }
+                        },
+                    },
+                    "responses": {
+                        "200": {"description": "Login successful"},
+                        "401": {"description": "Invalid credentials"},
+                    },
+                }
+            },
+            "/api/auth/health": {
+                "get": {
+                    "summary": "Auth health check",
+                    "responses": {"200": {"description": "Healthy"}},
+                }
+            },
+            "/api/auth/validate-token": {
+                "get": {
+                    "summary": "Validate JWT token",
+                    "security": [{"bearerAuth": []}],
+                    "responses": {"200": {"description": "Token valid"}, "401": {"description": "Unauthorized"}},
+                }
+            },
+            "/api/auth/refresh": {
+                "post": {
+                    "summary": "Refresh access token",
+                    "security": [{"bearerAuth": []}],
+                    "responses": {"200": {"description": "Token refreshed"}, "401": {"description": "Unauthorized"}},
+                }
+            },
+            "/health": {
+                "get": {
+                    "summary": "Service health check",
+                    "responses": {"200": {"description": "Healthy"}},
+                }
+            },
+        },
+        "components": {
+            "securitySchemes": {
+                "bearerAuth": {
+                    "type": "http",
+                    "scheme": "bearer",
+                    "bearerFormat": "JWT",
+                }
+            }
+        },
+    }
+
+
+def _swagger_ui_html(spec_url: str) -> str:
+    return dedent(
+        f"""
+        <!doctype html>
+        <html lang="en">
+        <head>
+          <meta charset="utf-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1">
+          <title>Chess Backend API Docs</title>
+          <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5/swagger-ui.css">
+          <style>html, body {{ margin: 0; padding: 0; height: 100%; }} #swagger-ui {{ height: 100%; }}</style>
+        </head>
+        <body>
+          <div id="swagger-ui"></div>
+          <script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
+          <script>
+            window.ui = SwaggerUIBundle({{
+              url: "{spec_url}",
+              dom_id: '#swagger-ui',
+              deepLinking: true,
+              presets: [SwaggerUIBundle.presets.apis],
+              layout: "BaseLayout"
+            }});
+          </script>
+        </body>
+        </html>
+        """
+    ).strip()
 
 def create_app():
     """Create and configure Flask application"""
@@ -100,16 +232,41 @@ def create_app():
             'status': 'running',
             'message': 'Chess backend is live',
             'health_check': '/api/ping',
+            'docs': '/docs',
         }
 
     @app.route('/ping')
     def ping():
         return jsonify({'status': 'ok', 'service': 'chess-backend'}), 200
+
+    @app.route('/openapi.json')
+    def openapi_json():
+        return jsonify(_build_openapi_spec())
+
+    @app.route('/docs')
+    @app.route('/swagger')
+    def swagger_docs():
+        return _swagger_ui_html('/openapi.json')
     
     @app.route('/uploads/<path:filename>')
     def serve_upload(filename):
         uploads_dir = os.path.join(os.getcwd(), 'uploads')
         return send_from_directory(uploads_dir, filename)
+
+    @app.route('/media/<media_id>')
+    def serve_media(media_id):
+        from app.storage import get_media_file
+
+        row = get_media_file(media_id)
+        if not row:
+            abort(404)
+
+        return send_file(
+            io.BytesIO(row['data']),
+            mimetype=row.get('content_type') or 'application/octet-stream',
+            as_attachment=False,
+            download_name=row.get('filename') or media_id,
+        )
     
     # Start background cleanup task
     from app.cleanup import start_cleanup_thread
@@ -128,15 +285,6 @@ def create_app():
         cleanup_blocklist()
     except Exception:
         app.logger.exception('Failed to cleanup token blocklist')
-
-    # Initialize HF sync if configured (download users.json into local DATA_ROOT)
-    try:
-        from app.models.user import USERS_FILE
-        from app import hf_sync  # type: ignore
-        hf_sync.initialize(USERS_FILE)
-        app.logger.info('HF sync initialization attempted')
-    except Exception:
-        app.logger.exception('HF sync initialization failed')
 
     # Warn if JWT secret uses default value (encourage setting env var)
     if os.getenv('JWT_SECRET_KEY') is None:
