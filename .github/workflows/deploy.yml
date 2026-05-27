@@ -1,0 +1,37 @@
+name: Deploy Django Backend to Hugging Face
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Configure Git
+        run: |
+          git config --global user.name "github-actions"
+          git config --global user.email "github-actions@example.com"
+
+      - name: Push to Hugging Face
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          git clone https://oauth2:$HF_TOKEN@huggingface.co/spaces/Anil1515/chess-backend hf-space
+
+          rsync -av --delete ./ hf-space/ \
+            --exclude hf-space \
+            --exclude .git
+
+          cd hf-space
+
+          git add .
+
+          git commit -m "auto deploy backend" || echo "no changes"
+
+          git push
