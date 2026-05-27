@@ -17,10 +17,10 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r chess_backend/requirements.txt
+          pip install -r requirements.txt
 
       - name: Run migration script
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: |
-          python chess_backend/scripts/migrate_json_to_postgres.py
+          python scripts/migrate_json_to_postgres.py
