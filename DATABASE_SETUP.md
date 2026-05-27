@@ -6,8 +6,8 @@
 
 Use a managed PostgreSQL service for production:
 
-- Supabase
 - Neon
+- Supabase
 - Render Postgres
 
 ## Steps
@@ -27,9 +27,11 @@ Use a managed PostgreSQL service for production:
 If you already have local JSON or legacy data on your PC, migrate it into the new database from your machine:
 
 ```powershell
-setx DATABASE_URL "postgresql://user:password@host:5432/chess"
+setx DATABASE_URL "postgresql://user:password@host:5432/chess?sslmode=require"
 python scripts/migrate_json_to_postgres.py
 ```
+
+If your password has special characters like `@`, `:`, or `/`, percent-encode them first. For example, `@` becomes `%40`.
 
 Use the same `DATABASE_URL` format in the Hugging Face Space.
 
