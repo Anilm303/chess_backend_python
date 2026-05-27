@@ -1,27 +1,19 @@
-<<<<<<< HEAD
 name: Deploy Backend to Hugging Face Space
-=======
-name: Deploy Django Backend to Hugging Face
->>>>>>> f74df643bb76cf39069aa73561b327db293f33ae
 
 on:
   push:
     branches:
       - main
-<<<<<<< HEAD
   workflow_dispatch:
 
 concurrency:
   group: hf-backend-deploy-${{ github.ref }}
   cancel-in-progress: true
-=======
->>>>>>> f74df643bb76cf39069aa73561b327db293f33ae
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
 
-<<<<<<< HEAD
     env:
       HF_USER: ${{ vars.HF_USER || 'Anil1515' }}
       HF_SPACE: ${{ vars.HF_SPACE || 'chess-baackend' }}
@@ -66,8 +58,6 @@ jobs:
             cd "${workspace_root}"
             rm -rf hf-space
             git clone "${HF_REPO_URL}" hf-space
-
-            cd hf-space
 
             cd "${workspace_root}"
 
@@ -123,31 +113,3 @@ jobs:
 
           echo "Push failed after 3 attempts."
           exit 1
-=======
-    steps:
-      - name: Checkout repo
-        uses: actions/checkout@v4
-
-      - name: Configure Git
-        run: |
-          git config --global user.name "github-actions"
-          git config --global user.email "github-actions@example.com"
-
-      - name: Push to Hugging Face
-        env:
-          HF_TOKEN: ${{ secrets.HF_TOKEN }}
-        run: |
-          git clone https://oauth2:$HF_TOKEN@huggingface.co/spaces/Anil1515/chess-backend hf-space
-
-          rsync -av --delete ./ hf-space/ \
-            --exclude hf-space \
-            --exclude .git
-
-          cd hf-space
-
-          git add .
-
-          git commit -m "auto deploy backend" || echo "no changes"
-
-          git push
->>>>>>> f74df643bb76cf39069aa73561b327db293f33ae
