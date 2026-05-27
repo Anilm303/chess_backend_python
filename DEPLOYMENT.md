@@ -8,7 +8,7 @@ This backend is ready for a permanent public URL using Render or a VPS.
 - `MEDIA_PUBLIC_BASE_URL=https://cdn.yourdomain.com` or a public S3 URL
 - `ALLOWED_ORIGINS=https://app.yourdomain.com,https://yourdomain.com`
 - `SECRET_KEY` and `JWT_SECRET_KEY` must be long random values
-- `DATABASE_URL` should point to PostgreSQL in production
+- `DATABASE_URL` should point to a managed PostgreSQL database in production
 - `REDIS_URL` is recommended for realtime state and scale-out
 
 ## Render
@@ -26,6 +26,10 @@ This backend is ready for a permanent public URL using Render or a VPS.
    - `MEDIA_PUBLIC_BASE_URL`
 5. Deploy.
 6. Your service URL becomes the stable backend URL.
+
+If you deploy on Hugging Face instead of Render, keep the same PostgreSQL rule: point `DATABASE_URL` to a managed cloud database, not a local PC instance.
+
+See [DATABASE_SETUP.md](DATABASE_SETUP.md) for the exact database setup and migration steps.
 
 ## Custom domain
 

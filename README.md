@@ -189,7 +189,9 @@ All errors follow this format:
 
 ## Data Persistence
 
-Currently uses JSON file storage (`users.json`). For production, replace with a proper database (PostgreSQL, MongoDB, etc.).
+The backend uses PostgreSQL when `DATABASE_URL` is set, and local mode only when it is not. For Hugging Face deployment, use a managed PostgreSQL database instead of a local PC database.
+
+See [DATABASE_SETUP.md](DATABASE_SETUP.md) for the setup and migration steps.
 
 ## Security Notes
 
