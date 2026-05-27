@@ -22,6 +22,18 @@ Required files:
 
 If you are using the Hugging Face Files UI instead of git, upload the same files/folders directly to the Space root.
 
+### Automatic deploy from GitHub
+
+This repository includes a GitHub Actions workflow at `.github/workflows/deploy.yml`.
+
+After you set these GitHub secrets/variables once, every push to `main` will automatically deploy to your Hugging Face Space:
+
+- `HF_TOKEN` as a GitHub secret, or `HUGGINGFACE_TOKEN` / `hf__token`
+- `HF_USER` as a GitHub variable if it is not `Anil1515`
+- `HF_SPACE` as a GitHub variable if your Space slug is not `chess-baackend`
+
+If you do not want auto deploy, you can ignore the workflow and push to Hugging Face manually with a token.
+
 ## 3) Runtime environment variables (recommended)
 
 In Space Settings -> Variables, set:
