@@ -11,6 +11,13 @@ def get_database_url() -> str:
     database_url = os.getenv('DATABASE_URL', '').strip()
     if not database_url:
         raise RuntimeError('DATABASE_URL is not set')
+
+    url = make_url(database_url)
+    if not url.host or url.host in {'host', '#host#'}:
+        raise RuntimeError(
+            'DATABASE_URL is still using a placeholder host. Replace "host" with your real PostgreSQL hostname.'
+        )
+
     return database_url
 
 

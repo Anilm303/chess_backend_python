@@ -1,0 +1,16 @@
+{
+  "Anil": {
+    "username": "Anil",
+    "email": "anil@gmail.com",
+    "first_name": "anil",
+    "last_name": "magar",
+    "password_hash": "pbkdf2:sha256:600000$f4PtqKSDOQBtJFg8$549f18ae18980f2bad5a590704febe180b84a70c5b8484a959eb930816e1d136",
+    "profile_image": null,
+    "bio": "",
+    "fcm_token": null,
+    "friends": [],
+    "friend_requests": [],
+    "created_at": "2026-05-28T10:38:08.165830",
+    "last_seen": "2026-05-28T10:38:08.165830"
+  }
+}

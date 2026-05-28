@@ -1,10 +1,57 @@
+import json
 import os
 from datetime import datetime
+from pathlib import Path
 from werkzeug.security import generate_password_hash, check_password_hash
+
+from sqlalchemy.engine import make_url
 
 from app.postgres_store import execute, execute_returning, fetch_all, fetch_one, json_value
 
 ONLINE_USERS = {}  # Track online users and their socket IDs
+LOCAL_USER_STORE = Path(__file__).resolve().parents[2] / 'data' / 'users.json'
+
+
+def _database_url_is_valid() -> bool:
+    database_url = os.getenv('DATABASE_URL', '').strip()
+    if not database_url:
+      return False
+
+    try:
+        url = make_url(database_url)
+    except Exception:
+        return False
+
+    host = (url.host or '').strip().lower()
+    return bool(host and host not in {'host', '#host#'})
+
+
+def _use_local_user_store() -> bool:
+    return not _database_url_is_valid()
+
+
+def _load_local_users():
+    if not LOCAL_USER_STORE.exists():
+        LOCAL_USER_STORE.parent.mkdir(parents=True, exist_ok=True)
+        LOCAL_USER_STORE.write_text('{}', encoding='utf-8')
+        return {}
+
+    try:
+        with LOCAL_USER_STORE.open('r', encoding='utf-8') as file_handle:
+            data = json.load(file_handle)
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def _save_local_users(users):
+    LOCAL_USER_STORE.parent.mkdir(parents=True, exist_ok=True)
+    with LOCAL_USER_STORE.open('w', encoding='utf-8') as file_handle:
+        json.dump(users, file_handle, indent=2)
+
+
+def _now_iso():
+    return datetime.utcnow().isoformat()
 
 
 class User:
@@ -75,6 +122,26 @@ class User:
 
         password_hash = generate_password_hash(password)
         now = datetime.utcnow()
+
+        if _use_local_user_store():
+            users = _load_local_users()
+            users[username] = {
+                'username': username,
+                'email': email,
+                'first_name': first_name,
+                'last_name': last_name,
+                'password_hash': password_hash,
+                'profile_image': None,
+                'bio': '',
+                'fcm_token': None,
+                'friends': [],
+                'friend_requests': [],
+                'created_at': now.isoformat(),
+                'last_seen': now.isoformat(),
+            }
+            _save_local_users(users)
+            return True, User.get_by_username(username)
+
         query = """
             INSERT INTO users (
                 username, email, first_name, last_name, password_hash,
@@ -116,6 +183,25 @@ class User:
     @staticmethod
     def get_by_username(username):
         """Get user by username"""
+        if _use_local_user_store():
+            user_data = _load_local_users().get(username)
+            if not user_data:
+                return None
+            return User(
+                user_data.get('username', ''),
+                user_data.get('email'),
+                user_data.get('first_name', ''),
+                user_data.get('last_name', ''),
+                user_data.get('password_hash', ''),
+                user_data.get('profile_image'),
+                user_data.get('bio', ''),
+                user_data.get('fcm_token'),
+                user_data.get('created_at'),
+                user_data.get('last_seen'),
+                user_data.get('friends') or [],
+                user_data.get('friend_requests') or [],
+            )
+
         row = fetch_one(
             "SELECT * FROM users WHERE username = %(username)s",
             {'username': username},
@@ -125,6 +211,12 @@ class User:
     @staticmethod
     def get_all_users():
         """Get all registered users with online status"""
+        if _use_local_user_store():
+            users = _load_local_users()
+            for username, user_data in users.items():
+                user_data['is_online'] = ONLINE_USERS.get(username) is not None
+            return users
+
         rows = fetch_all("SELECT * FROM users ORDER BY username")
         users = {}
         for row in rows:
@@ -151,6 +243,23 @@ class User:
         if not user:
             return False, 'User not found'
 
+        if _use_local_user_store():
+            users = _load_local_users()
+            user_data = users.get(username)
+            if not user_data:
+                return False, 'User not found'
+            if first_name is not None:
+                user_data['first_name'] = first_name
+            if last_name is not None:
+                user_data['last_name'] = last_name
+            if bio is not None:
+                user_data['bio'] = bio
+            if profile_image is not None:
+                user_data['profile_image'] = profile_image
+            users[username] = user_data
+            _save_local_users(users)
+            return True, 'Profile updated'
+
         query = """
             UPDATE users
             SET first_name = COALESCE(%(first_name)s, first_name),
@@ -171,6 +280,16 @@ class User:
     @staticmethod
     def set_fcm_token(username, token):
         """Update user's FCM token"""
+        if _use_local_user_store():
+            users = _load_local_users()
+            user_data = users.get(username)
+            if not user_data:
+                return False
+            user_data['fcm_token'] = token
+            users[username] = user_data
+            _save_local_users(users)
+            return True
+
         rowcount = execute(
             "UPDATE users SET fcm_token = %(token)s WHERE username = %(username)s",
             {'username': username, 'token': token},
@@ -180,6 +299,12 @@ class User:
     @staticmethod
     def get_fcm_token(username):
         """Get user's FCM token"""
+        if _use_local_user_store():
+            user_data = _load_local_users().get(username)
+            if not user_data:
+                return None
+            return user_data.get('fcm_token')
+
         row = fetch_one(
             "SELECT fcm_token FROM users WHERE username = %(username)s",
             {'username': username},
@@ -190,6 +315,15 @@ class User:
     def set_online(username, socket_id=None):
         """Mark user as online"""
         ONLINE_USERS[username] = socket_id or True
+        if _use_local_user_store():
+            users = _load_local_users()
+            user_data = users.get(username)
+            if user_data:
+                user_data['last_seen'] = _now_iso()
+                users[username] = user_data
+                _save_local_users(users)
+            return
+
         execute(
             "UPDATE users SET last_seen = %(last_seen)s WHERE username = %(username)s",
             {'username': username, 'last_seen': datetime.utcnow()},
@@ -199,6 +333,15 @@ class User:
     def set_offline(username):
         """Mark user as offline"""
         ONLINE_USERS.pop(username, None)
+        if _use_local_user_store():
+            users = _load_local_users()
+            user_data = users.get(username)
+            if user_data:
+                user_data['last_seen'] = _now_iso()
+                users[username] = user_data
+                _save_local_users(users)
+            return
+
         execute(
             "UPDATE users SET last_seen = %(last_seen)s WHERE username = %(username)s",
             {'username': username, 'last_seen': datetime.utcnow()},
@@ -222,6 +365,10 @@ def get_users():
 
 def save_users(users):
     """Upsert a users dict into PostgreSQL."""
+    if _use_local_user_store():
+        _save_local_users(users)
+        return
+
     for username, user_data in users.items():
         execute(
             """
