@@ -248,6 +248,28 @@ def react_to_story(story_id):
         }), 500
 
 
+@stories_bp.route('/<story_id>', methods=['DELETE'])
+@jwt_required()
+@rate_limit(limit=20, window_seconds=60, scope='story_delete')
+def delete_story(story_id):
+    """Delete a story owned by the authenticated user."""
+    try:
+        current_user = get_jwt_identity()
+        success, message = Story.delete_story(story_id, current_user)
+
+        if not success:
+            status_code = 404 if message == 'Story not found' else 403
+            return jsonify({'success': False, 'message': message}), status_code
+
+        return jsonify({'success': True, 'message': message}), 200
+
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'message': f'Error: {str(e)}'
+        }), 500
+
+
 @stories_bp.route('/<story_id>/reactions', methods=['GET'])
 @jwt_required()
 def get_story_reactions(story_id):

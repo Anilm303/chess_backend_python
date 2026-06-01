@@ -73,7 +73,7 @@ def validate_bio(bio, max_length=280):
     return True, normalize_text(bio, max_length)
 
 
-def validate_media_type(media_type, allowed=('image', 'video')):
+def validate_media_type(media_type, allowed=('image', 'video', 'audio')):
     value = normalize_text(media_type, 16).lower()
     if value not in allowed:
         return False, f'media_type must be one of: {", ".join(allowed)}'

@@ -3,7 +3,7 @@ import os
 import uuid
 from datetime import datetime, timedelta
 
-from app.storage import create_media_filename, delete_local_media_file, store_media_bytes, _storage_mode
+from app.storage import create_media_filename, delete_local_media_file, delete_stored_media, store_media_bytes, _storage_mode
 from app.postgres_store import execute, fetch_all, fetch_one, json_value
 
 UPLOADS_FOLDER = os.getenv('STORY_UPLOADS_FOLDER', 'uploads/stories')
@@ -265,3 +265,18 @@ class Story:
     def cleanup_expired_stories():
         now = datetime.now()
         execute('DELETE FROM stories WHERE timestamp < %(cutoff)s', {'cutoff': now - timedelta(hours=24)})
+
+    @staticmethod
+    def delete_story(story_id, username):
+        row = fetch_one('SELECT username, media_url, thumbnail_url FROM stories WHERE id = %(id)s', {'id': story_id})
+        if not row:
+            return False, 'Story not found'
+
+        if row.get('username') != username:
+            return False, 'You can only delete your own story'
+
+        delete_stored_media(row.get('media_url'))
+        delete_stored_media(row.get('thumbnail_url'))
+
+        execute('DELETE FROM stories WHERE id = %(id)s', {'id': story_id})
+        return True, 'Story deleted successfully'

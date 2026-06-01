@@ -129,26 +129,37 @@ class Message:
         elif message_type == 'call':
             if not text or text.strip() == '':
                 text = 'Incoming call'
-        elif message_type in ['image', 'video']:
+        elif message_type in ['image', 'video', 'audio']:
             if media_path:
                 media_url = media_path
             elif media_base64:
-                extension = 'mp4' if message_type == 'video' else 'jpg'
+                extension = 'mp4' if message_type == 'video' else ('m4a' if message_type == 'audio' else 'jpg')
                 filename = create_media_filename(extension)
                 try:
                     media_bytes = base64.b64decode(media_base64)
                     if len(media_bytes) > MAX_MESSAGE_SIZE:
                         return False, 'File too large'
-                    media_url = store_media_bytes('messages', filename, media_bytes, content_type='video/mp4' if message_type == 'video' else 'image/jpeg')
+                    media_url = store_media_bytes(
+                        'messages',
+                        filename,
+                        media_bytes,
+                        content_type=(
+                            'video/mp4' if message_type == 'video' else 'audio/mp4' if message_type == 'audio' else 'image/jpeg'
+                        ),
+                    )
                     if message_type == 'video':
-                        from app.utils import generate_video_thumbnail
-                        thumb_filename = f"{filename.split('.')[0]}_thumb.jpg"
-                        thumb_filepath = os.path.join(UPLOADS_FOLDER, thumb_filename)
-                        if generate_video_thumbnail(os.path.join(UPLOADS_FOLDER, filename), thumb_filepath):
-                            with open(thumb_filepath, 'rb') as thumb_file:
-                                thumbnail_url = store_media_bytes('messages', thumb_filename, thumb_file.read(), content_type='image/jpeg')
-                            if _storage_mode() == 'postgres':
-                                delete_local_media_file('messages', thumb_filename)
+                        try:
+                            from app.utils import generate_video_thumbnail
+                            thumb_filename = f"{filename.split('.')[0]}_thumb.jpg"
+                            thumb_filepath = os.path.join(UPLOADS_FOLDER, thumb_filename)
+                            local_video_path = os.path.join(UPLOADS_FOLDER, filename)
+                            if os.path.exists(local_video_path) and generate_video_thumbnail(local_video_path, thumb_filepath):
+                                with open(thumb_filepath, 'rb') as thumb_file:
+                                    thumbnail_url = store_media_bytes('messages', thumb_filename, thumb_file.read(), content_type='image/jpeg')
+                                if _storage_mode() == 'postgres':
+                                    delete_local_media_file('messages', thumb_filename)
+                        except Exception as thumb_error:
+                            print(f"Video thumbnail generation failed: {thumb_error}")
                         if _storage_mode() == 'postgres':
                             delete_local_media_file('messages', filename)
                     elif _storage_mode() == 'postgres':
@@ -186,25 +197,36 @@ class Message:
         elif message_type == 'call':
             if not text or text.strip() == '':
                 text = 'Incoming call'
-        elif message_type in ['image', 'video']:
+        elif message_type in ['image', 'video', 'audio']:
             if media_path:
                 media_url = media_path
             elif media_bytes:
                 if len(media_bytes) > MAX_MESSAGE_SIZE:
                     return False, 'File too large'
-                extension = 'mp4' if message_type == 'video' else 'jpg'
+                extension = 'mp4' if message_type == 'video' else ('m4a' if message_type == 'audio' else 'jpg')
                 filename = create_media_filename(extension)
                 try:
-                    media_url = store_media_bytes('messages', filename, media_bytes, content_type='video/mp4' if message_type == 'video' else 'image/jpeg')
+                    media_url = store_media_bytes(
+                        'messages',
+                        filename,
+                        media_bytes,
+                        content_type=(
+                            'video/mp4' if message_type == 'video' else 'audio/mp4' if message_type == 'audio' else 'image/jpeg'
+                        ),
+                    )
                     if message_type == 'video':
-                        from app.utils import generate_video_thumbnail
-                        thumb_filename = f"{filename.split('.')[0]}_thumb.jpg"
-                        thumb_filepath = os.path.join(UPLOADS_FOLDER, thumb_filename)
-                        if generate_video_thumbnail(os.path.join(UPLOADS_FOLDER, filename), thumb_filepath):
-                            with open(thumb_filepath, 'rb') as thumb_file:
-                                thumbnail_url = store_media_bytes('messages', thumb_filename, thumb_file.read(), content_type='image/jpeg')
-                            if _storage_mode() == 'postgres':
-                                delete_local_media_file('messages', thumb_filename)
+                        try:
+                            from app.utils import generate_video_thumbnail
+                            thumb_filename = f"{filename.split('.')[0]}_thumb.jpg"
+                            thumb_filepath = os.path.join(UPLOADS_FOLDER, thumb_filename)
+                            local_video_path = os.path.join(UPLOADS_FOLDER, filename)
+                            if os.path.exists(local_video_path) and generate_video_thumbnail(local_video_path, thumb_filepath):
+                                with open(thumb_filepath, 'rb') as thumb_file:
+                                    thumbnail_url = store_media_bytes('messages', thumb_filename, thumb_file.read(), content_type='image/jpeg')
+                                if _storage_mode() == 'postgres':
+                                    delete_local_media_file('messages', thumb_filename)
+                        except Exception as thumb_error:
+                            print(f"Video thumbnail generation failed: {thumb_error}")
                         if _storage_mode() == 'postgres':
                             delete_local_media_file('messages', filename)
                     elif _storage_mode() == 'postgres':

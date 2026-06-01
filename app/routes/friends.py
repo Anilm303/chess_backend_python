@@ -71,10 +71,9 @@ def respond_friend_request():
 
     current_user = users[current]
     reqs = current_user.get('friend_requests', [])
-    if requester not in reqs:
-        return jsonify({'success': False, 'message': 'No pending request from this user'}), 400
-
-    reqs.remove(requester)
+    pending_exists = requester in reqs
+    if pending_exists:
+        reqs.remove(requester)
     current_user['friend_requests'] = reqs
 
     if accept:
@@ -115,7 +114,11 @@ def respond_friend_request():
 
     users[current] = current_user
     save_users(users)
-    return jsonify({'success': True, 'accepted': accept}), 200
+    return jsonify({
+        'success': True,
+        'accepted': accept,
+        'stale_request': not pending_exists,
+    }), 200
 
 
 @friends_bp.route('/contacts', methods=['GET'])

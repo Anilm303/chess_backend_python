@@ -10,6 +10,10 @@ from app.game_engine import GameEngine
 from app.room_manager import RoomManager
 from app.websocket_handler import setup_websocket_handlers
 from app.api_routes import router as api_router
+from app.routes.auth_api import router as auth_router
+from app.routes.payments import router as payments_router
+from app.routes.tournaments import router as tournaments_router
+from app.routes.messages_api import router as messages_router
 from app.db_connection import init_db, close_db
 
 # Configure logging
@@ -22,6 +26,7 @@ logger = logging.getLogger(__name__)
 # Initialize managers (singleton)
 room_manager = RoomManager()
 game_engine = GameEngine()
+# expose managers on app state for route handlers to use
 
 # Global lifespan context
 @asynccontextmanager
@@ -30,9 +35,19 @@ async def lifespan(app: FastAPI):
     Manage app lifecycle
     """
     logger.info("Starting Ludo Game Server...")
-    await init_db()
+    try:
+        await init_db()
+    except Exception as exc:
+        # Do not crash the whole app for local development if DB is not configured.
+        logger.warning(
+            "Database initialization failed, continuing in local/in-memory mode: %s",
+            exc,
+        )
     yield
-    await close_db()
+    try:
+        await close_db()
+    except Exception:
+        logger.warning("Error closing DB connection during shutdown")
     logger.info("Ludo Game Server stopped")
 
 app = FastAPI(
@@ -41,6 +56,10 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan,
 )
+
+# attach singletons to app state so routers can access them
+app.state.room_manager = room_manager
+app.state.game_engine = game_engine
 
 # Add CORS middleware
 app.add_middleware(
@@ -53,6 +72,10 @@ app.add_middleware(
 
 # Include API routes
 app.include_router(api_router, prefix="/api", tags=["api"])
+app.include_router(auth_router, prefix="/api", tags=["auth"])
+app.include_router(payments_router, prefix="/api", tags=["payments"])
+app.include_router(tournaments_router, prefix="/api", tags=["tournaments"])
+app.include_router(messages_router, prefix="/api", tags=["messages"])
 
 # Setup WebSocket handlers
 setup_websocket_handlers(app, room_manager, game_engine)

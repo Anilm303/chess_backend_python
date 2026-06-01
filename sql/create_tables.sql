@@ -158,3 +158,40 @@ CREATE TABLE IF NOT EXISTS media_files (
   data BYTEA NOT NULL,
   created_at TIMESTAMPTZ DEFAULT now()
 );
+
+-- payments table for tournament/in-app purchases
+CREATE TABLE IF NOT EXISTS payments (
+  id BIGSERIAL PRIMARY KEY,
+  pid TEXT UNIQUE NOT NULL,
+  user_id TEXT,
+  tournament_id TEXT,
+  amount NUMERIC(12,2) NOT NULL,
+  currency TEXT DEFAULT 'NPR',
+  status TEXT DEFAULT 'pending', -- pending, paid, failed
+  esewa_ref_id TEXT,
+  raw_response JSONB,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  verified_at TIMESTAMPTZ
+);
+
+-- tournaments
+CREATE TABLE IF NOT EXISTS tournaments (
+  id TEXT PRIMARY KEY,
+  title TEXT NOT NULL,
+  game_type TEXT NOT NULL, -- 'chess' or 'ludo'
+  entry_fee NUMERIC(12,2) DEFAULT 0,
+  max_players INT DEFAULT 2,
+  owner TEXT,
+  status TEXT DEFAULT 'open', -- open, closed, running, finished
+  metadata JSONB,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS tournament_participants (
+  id BIGSERIAL PRIMARY KEY,
+  tournament_id TEXT NOT NULL REFERENCES tournaments(id) ON DELETE CASCADE,
+  user_id TEXT NOT NULL,
+  status TEXT DEFAULT 'pending', -- pending, paid, joined
+  payment_pid TEXT,
+  joined_at TIMESTAMPTZ
+);

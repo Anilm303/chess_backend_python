@@ -5,6 +5,23 @@ from typing import Any, Iterable, Optional
 import psycopg2
 from psycopg2.extras import Json, RealDictCursor
 from sqlalchemy.engine import make_url
+import logging
+
+logger = logging.getLogger(__name__)
+
+
+def is_database_url_configured() -> bool:
+    database_url = os.getenv('DATABASE_URL', '').strip()
+    if not database_url:
+        return False
+
+    try:
+        url = make_url(database_url)
+    except Exception:
+        return False
+
+    host = (url.host or '').strip().lower()
+    return bool(host and host not in {'host', '#host#'})
 
 
 def get_database_url() -> str:
@@ -12,8 +29,7 @@ def get_database_url() -> str:
     if not database_url:
         raise RuntimeError('DATABASE_URL is not set')
 
-    url = make_url(database_url)
-    if not url.host or url.host in {'host', '#host#'}:
+    if not is_database_url_configured():
         raise RuntimeError(
             'DATABASE_URL is still using a placeholder host. Replace "host" with your real PostgreSQL hostname.'
         )
@@ -43,6 +59,10 @@ def get_connection():
 
 
 def fetch_one(query: str, params: Optional[dict] = None) -> Optional[dict]:
+    if not is_database_url_configured():
+        logger.warning('fetch_one called but DATABASE_URL not configured — returning None (dev fallback)')
+        return None
+
     with get_connection() as connection:
         with connection.cursor() as cursor:
             cursor.execute(query, params or {})
@@ -51,6 +71,10 @@ def fetch_one(query: str, params: Optional[dict] = None) -> Optional[dict]:
 
 
 def fetch_all(query: str, params: Optional[dict] = None) -> list[dict]:
+    if not is_database_url_configured():
+        logger.warning('fetch_all called but DATABASE_URL not configured — returning empty list (dev fallback)')
+        return []
+
     with get_connection() as connection:
         with connection.cursor() as cursor:
             cursor.execute(query, params or {})
@@ -58,6 +82,10 @@ def fetch_all(query: str, params: Optional[dict] = None) -> list[dict]:
 
 
 def execute(query: str, params: Optional[dict] = None) -> int:
+    if not is_database_url_configured():
+        logger.warning('execute called but DATABASE_URL not configured — returning 0 (dev fallback)')
+        return 0
+
     with get_connection() as connection:
         with connection.cursor() as cursor:
             cursor.execute(query, params or {})
@@ -65,6 +93,10 @@ def execute(query: str, params: Optional[dict] = None) -> int:
 
 
 def execute_returning(query: str, params: Optional[dict] = None) -> Optional[dict]:
+    if not is_database_url_configured():
+        logger.warning('execute_returning called but DATABASE_URL not configured — returning None (dev fallback)')
+        return None
+
     with get_connection() as connection:
         with connection.cursor() as cursor:
             cursor.execute(query, params or {})

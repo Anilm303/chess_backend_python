@@ -170,6 +170,7 @@ def create_app():
     cors_resources = {
         r"/api/*": {"origins": allowed_origins},
         r"/uploads/*": {"origins": allowed_origins},
+        r"/media/*": {"origins": allowed_origins},
         r"/socket.io/*": {"origins": allowed_origins},
     }
     CORS(app, resources=cors_resources)

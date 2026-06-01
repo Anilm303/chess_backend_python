@@ -11,6 +11,20 @@
     "friends": [],
     "friend_requests": [],
     "created_at": "2026-05-28T10:38:08.165830",
-    "last_seen": "2026-05-28T10:38:08.165830"
+    "last_seen": "2026-05-31T04:15:29.174170"
+  },
+  "tester1": {
+    "username": "tester1",
+    "email": "tester1@example.com",
+    "first_name": "Test",
+    "last_name": "User",
+    "password_hash": "pbkdf2:sha256:600000$kJsr48Z2wHdL0Nyf$dd3b4625069f5c8d78f509e39499b09a8a0d5ce185c63008ccbee848309a7eab",
+    "profile_image": null,
+    "bio": "",
+    "fcm_token": null,
+    "friends": [],
+    "friend_requests": [],
+    "created_at": "2026-05-29T07:37:22.637884",
+    "last_seen": "2026-05-29T07:37:22.637884"
   }
 }

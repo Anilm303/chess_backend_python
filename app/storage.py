@@ -3,6 +3,7 @@ import tempfile
 from uuid import uuid4
 
 from app.postgres_store import execute, fetch_one
+from app.postgres_store import is_database_url_configured
 
 DATA_ROOT = os.getenv('DATA_ROOT', '').strip()
 UPLOAD_ROOT = os.getenv('UPLOAD_ROOT', '').strip() or (
@@ -14,7 +15,7 @@ def _storage_mode():
     configured = os.getenv('MEDIA_STORAGE', '').strip().lower()
     if configured:
         return configured
-    return 'postgres' if os.getenv('DATABASE_URL') else 'local'
+    return 'postgres' if is_database_url_configured() else 'local'
 
 
 def _normalize_public_base_url():
@@ -119,6 +120,25 @@ def delete_local_media_file(category, filename):
             os.remove(filepath)
         except Exception:
             pass
+
+
+def delete_stored_media(media_url):
+    """Delete a stored media record and any matching local file copy."""
+    if not media_url:
+        return
+
+    url = str(media_url).strip()
+    if url.startswith('/media/'):
+        media_id = url.rsplit('/', 1)[-1]
+        execute('DELETE FROM media_files WHERE id = %(media_id)s', {'media_id': media_id})
+        return
+
+    if url.startswith('/uploads/'):
+        relative_path = url[len('/uploads/'):].lstrip('/')
+        if '/' in relative_path:
+          category, filename = relative_path.split('/', 1)
+          delete_local_media_file(category, filename)
+        return
 
 
 def get_media_file(media_id):

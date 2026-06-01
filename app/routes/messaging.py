@@ -159,7 +159,7 @@ def send_message():
         return jsonify({'success': False, 'message': receiver_or_message}), 400
     
     message_type = str(message_type or 'text').strip().lower()
-    if message_type not in ['text', 'image', 'video', 'call']:
+    if message_type not in ['text', 'image', 'video', 'audio', 'call']:
         return jsonify({'success': False, 'message': 'Invalid message type'}), 400
     
     if message_type == 'text' and not text:
@@ -172,10 +172,10 @@ def send_message():
         text = text_or_message
     
     # For media messages, require either uploaded file bytes or base64 payload
-    if message_type in ['image', 'video'] and not (media_bytes or media_base64):
+    if message_type in ['image', 'video', 'audio'] and not (media_bytes or media_base64):
         return jsonify({'success': False, 'message': f'{message_type} data is required'}), 400
 
-    if message_type in ['image', 'video'] and media_base64 is not None:
+    if message_type in ['image', 'video', 'audio'] and media_base64 is not None:
         if not isinstance(media_base64, str) or not media_base64.strip():
             return jsonify({'success': False, 'message': f'{message_type} data is required'}), 400
 
@@ -641,7 +641,7 @@ def send_group_message(group_id):
         timestamp = data.get('timestamp')
 
     message_type = str(message_type or 'text').strip().lower()
-    if message_type not in ['text', 'image', 'video', 'call']:
+    if message_type not in ['text', 'image', 'video', 'audio', 'call']:
         return jsonify({'success': False, 'message': 'Invalid message type'}), 400
 
     if message_type == 'text':
@@ -650,7 +650,7 @@ def send_group_message(group_id):
             return jsonify({'success': False, 'message': text_or_message}), 400
         text = text_or_message
 
-    if message_type in ['image', 'video'] and (not media_base64 or not isinstance(media_base64, str)):
+    if message_type in ['image', 'video', 'audio'] and (not media_base64 or not isinstance(media_base64, str)):
         return jsonify({'success': False, 'message': f'{message_type} data is required'}), 400
 
     success, result = GroupChat.send_group_message(
