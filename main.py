@@ -61,13 +61,16 @@ app = FastAPI(
 app.state.room_manager = room_manager
 app.state.game_engine = game_engine
 
-# Add CORS middleware
+# Add CORS middleware - accept any origin so the mobile app works
+# from any network (Kathmandu, Pokhara, etc.) without configuration.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
+    allow_credentials=False,  # must be False when allow_origins is "*"
+    allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
     allow_headers=["*"],
+    expose_headers=["*"],
+    max_age=3600,
 )
 
 # Include API routes

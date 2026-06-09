@@ -217,6 +217,7 @@ def create_app():
     from app.routes.friends import friends_bp
     from app.routes.upload import upload_bp
     from app.routes.debug import debug_bp
+    from app.routes.tournament import tournament_bp
     app.register_blueprint(auth_bp, url_prefix='/api/auth')
     app.register_blueprint(messaging_bp, url_prefix='/api/messages')
     app.register_blueprint(friends_bp, url_prefix='/api/friends')
@@ -224,6 +225,10 @@ def create_app():
     app.register_blueprint(notes_bp, url_prefix='/api/notes')
     app.register_blueprint(upload_bp, url_prefix='/api/upload')
     app.register_blueprint(debug_bp, url_prefix='/api/debug')
+    app.register_blueprint(tournament_bp, url_prefix='/api/tournaments')
+    # Register payments blueprint for eSewa
+    from app.routes.payments_flask import payments_bp
+    app.register_blueprint(payments_bp, url_prefix='/api/payments')
 
     # Register Socket.IO handlers (messaging + call signaling)
     from app import websocket as ws_handlers  # noqa: F401

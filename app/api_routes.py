@@ -9,6 +9,11 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+
+@router.get('/health')
+async def health():
+    return {'success': True, 'message': 'API is healthy'}
+
 # Pydantic models for API
 class PlayerRequest(BaseModel):
     id: str

@@ -55,11 +55,12 @@ def _now_iso():
 
 
 class User:
-    """User model with profile support"""
+    """User model with profile support and tournament wallet"""
 
     def __init__(self, username, email, first_name, last_name, password_hash,
                  profile_image=None, bio=None, fcm_token=None, created_at=None,
-                 last_seen=None, friends=None, friend_requests=None):
+                 last_seen=None, friends=None, friend_requests=None,
+                 wallet_balance=0.0):
         self.username = username
         self.email = email
         self.first_name = first_name
@@ -72,6 +73,7 @@ class User:
         self.last_seen = last_seen or datetime.utcnow().isoformat()
         self.friends = friends or []
         self.friend_requests = friend_requests or []
+        self.wallet_balance = float(wallet_balance or 0)
 
     def to_dict(self, include_password=False):
         data = {
@@ -87,10 +89,59 @@ class User:
             'friends': self.friends,
             'friend_requests': self.friend_requests,
             'is_online': ONLINE_USERS.get(self.username) is not None,
+            'wallet_balance': self.wallet_balance,
         }
         if include_password:
             data['password_hash'] = self.password_hash
         return data
+
+    # --------------- Wallet helpers ---------------
+    @staticmethod
+    def _persist_wallet(username: str, balance: float) -> None:
+        if _use_local_user_store():
+            users = _load_local_users()
+            u = users.get(username)
+            if u is None:
+                return
+            u['wallet_balance'] = float(balance)
+            users[username] = u
+            _save_local_users(users)
+        else:
+            execute(
+                'UPDATE users SET wallet_balance = %(bal)s WHERE username = %(u)s',
+                {'bal': float(balance), 'u': username},
+            )
+
+    @staticmethod
+    def get_wallet_balance(username: str) -> float:
+        u = User.get_by_username(username)
+        return float(u.wallet_balance) if u else 0.0
+
+    @staticmethod
+    def credit_wallet(username: str, amount: float) -> float:
+        """Add funds to a user's wallet. Returns the new balance."""
+        if amount <= 0:
+            return User.get_wallet_balance(username)
+        u = User.get_by_username(username)
+        if not u:
+            raise ValueError('User not found')
+        new_balance = float(u.wallet_balance) + float(amount)
+        User._persist_wallet(username, new_balance)
+        return new_balance
+
+    @staticmethod
+    def debit_wallet(username: str, amount: float) -> float:
+        """Remove funds from a user's wallet. Raises if insufficient balance."""
+        if amount <= 0:
+            return User.get_wallet_balance(username)
+        u = User.get_by_username(username)
+        if not u:
+            raise ValueError('User not found')
+        if float(u.wallet_balance) < float(amount):
+            raise ValueError('Insufficient wallet balance')
+        new_balance = float(u.wallet_balance) - float(amount)
+        User._persist_wallet(username, new_balance)
+        return new_balance
 
     @staticmethod
     def _row_to_user(row):
@@ -172,12 +223,12 @@ class User:
 
     @staticmethod
     def login(username, password):
-        """Authenticate user"""
+        """Authenticate user with a specific error message."""
         user = User.get_by_username(username)
         if not user:
-            return False, 'Invalid credentials'
+            return False, 'No account found with this username. Please register first.'
         if not check_password_hash(user.password_hash, password):
-            return False, 'Invalid credentials'
+            return False, 'Wrong password. Please try again.'
         return True, user
 
     @staticmethod
