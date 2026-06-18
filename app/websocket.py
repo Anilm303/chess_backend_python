@@ -237,14 +237,15 @@ def _emit_to_username(username, event, payload):
     socket_id = active_connections.get(username)
     if socket_id:
         try:
-            print(f"Emitting event '{event}' to user '{username}' (sid={socket_id}) payload={payload}")
-            emit(event, payload, to=socket_id)
+            print(f"Emitting event '{event}' to user '{username}' (sid={socket_id})")
+            # Use socketio.emit instead of plain emit for REST-to-Socket compatibility
+            socketio.emit(event, payload, to=socket_id)
             return True
         except Exception as e:
             print(f"Error emitting to {username} (sid={socket_id}): {e}")
             return False
     else:
-        print(f"Target user {username} not found in active_connections. Current active: {list(active_connections.keys())}")
+        print(f"Target user {username} not found in active_connections.")
         return False
 
 
