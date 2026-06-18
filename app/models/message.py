@@ -244,8 +244,25 @@ class Message:
         return True, message
 
     @staticmethod
-    def get_messages():
-        return {row['id']: Message._row_to_dict(row) for row in fetch_all('SELECT * FROM messages ORDER BY timestamp')}
+    def get_messages(receiver_username=None, last_sync=None):
+        query = "SELECT * FROM messages"
+        params = {}
+        filters = []
+
+        if receiver_username:
+            filters.append("receiver = %(receiver)s")
+            params['receiver'] = receiver_username
+
+        if last_sync:
+            filters.append("timestamp > %(last_sync)s")
+            params['last_sync'] = last_sync
+
+        if filters:
+            query += " WHERE " + " AND ".join(filters)
+
+        query += " ORDER BY timestamp ASC"
+
+        return {row['id']: Message._row_to_dict(row) for row in fetch_all(query, params)}
 
     @staticmethod
     def react_to_message(message_id, reactor, emoji):
@@ -280,27 +297,21 @@ class Message:
         return True, Message._row_to_dict(fetch_one('SELECT * FROM messages WHERE id = %(id)s', {'id': message_id}))
 
     @staticmethod
-    def get_conversation(user1, user2):
+    def get_conversation(user1, user2, limit=50, offset=0):
         rows = fetch_all(
             """
             SELECT * FROM messages
             WHERE (sender = %(user1)s AND receiver = %(user2)s)
                OR (sender = %(user2)s AND receiver = %(user1)s)
-            ORDER BY timestamp
+            ORDER BY timestamp DESC
+            LIMIT %(limit)s OFFSET %(offset)s
             """,
-            {'user1': user1, 'user2': user2},
+            {'user1': user1, 'user2': user2, 'limit': limit, 'offset': offset},
         )
-        conversation = []
-        for row in rows:
-            msg = Message._row_to_dict(row)
-            if 'reactions' not in msg:
-                msg['reactions'] = {}
-            if 'reply_to_id' not in msg:
-                msg['reply_to_id'] = None
-            if 'status' not in msg:
-                msg['status'] = 'seen' if msg.get('is_read') else 'sent'
-            conversation.append(msg)
+        conversation = [Message._row_to_dict(row) for row in rows]
+        conversation.reverse()
         return conversation
+    
 
     @staticmethod
     def get_all_conversations(username):

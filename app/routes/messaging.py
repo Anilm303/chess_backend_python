@@ -590,25 +590,12 @@ def sync_messages():
     last_sync = request.args.get('last_sync')
 
     try:
-        all_messages = Message.get_messages()  # returns dict of id->message
-        results = []
-        for mid, msg in all_messages.items():
-            if msg.get('receiver') != current_user:
-                continue
-            # If last_sync provided, filter
-            if last_sync:
-                try:
-                    msg_time = datetime.fromisoformat(msg.get('timestamp'))
-                    last_sync_time = datetime.fromisoformat(last_sync)
-                    if msg_time <= last_sync_time:
-                        continue
-                except Exception:
-                    # If timestamp parsing fails, include message
-                    pass
-            results.append(msg)
+        # Optimized: Only fetch messages for this user since last sync directly from DB
+        results = list(Message.get_messages(
+            receiver_username=current_user,
+            last_sync=last_sync
+        ).values())
 
-        # Sort oldest->newest
-        results.sort(key=lambda x: x.get('timestamp', ''))
         return jsonify({'success': True, 'messages': results, 'sync_timestamp': datetime.utcnow().isoformat()}), 200
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)}), 500

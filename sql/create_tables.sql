@@ -195,3 +195,9 @@ CREATE TABLE IF NOT EXISTS tournament_participants (
   payment_pid TEXT,
   joined_at TIMESTAMPTZ
 );
+
+-- Performance Indexes for Messaging Optimization
+CREATE INDEX IF NOT EXISTS idx_messages_conversation ON messages(sender, receiver, timestamp);
+CREATE INDEX IF NOT EXISTS idx_messages_sync ON messages(receiver, timestamp);
+CREATE INDEX IF NOT EXISTS idx_group_messages_query ON group_messages(group_id, timestamp);
+CREATE INDEX IF NOT EXISTS idx_users_online ON users(username) WHERE last_seen > now() - interval '5 minutes';
