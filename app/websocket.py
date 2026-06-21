@@ -721,7 +721,7 @@ def handle_chess_join(data):
 def handle_chess_move(data):
     tournament_id = data.get('tournament_id')
     if tournament_id:
-        # Broadcast the move to the other player in the tournament room
+        # Fast broadcast using room, ensuring immediate delivery
         socketio.emit('chess_move_received', data, room=f"chess_{tournament_id}", include_self=False)
 
 @socketio.on('story_reaction_notification')
