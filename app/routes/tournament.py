@@ -99,19 +99,21 @@ def get_tournament(tid):
     participants_query = "SELECT * FROM tournament_participants WHERE tournament_id = %(tid)s"
     participants = fetch_all(participants_query, {'tid': tid})
 
-    # Recalculate paid count and prize pool for accuracy
+    # Strictly count only those with status 'paid'
     paid_participants = [p for p in participants if p.get('status') == 'paid']
     paid_count = len(paid_participants)
 
-    # Entry fee is usually per player, prize pool is entry_fee * paid_count
-    # Update the prize pool in the dictionary we return
-    t['paid_players'] = paid_count
-    t['prize_pool'] = round(float(t.get('entry_fee', 0)) * paid_count, 2)
+    # Accurate Prize Pool Calculation: Entry Fee * Paid Count
+    entry_fee = float(t.get('entry_fee', 0))
+    accurate_prize_pool = round(entry_fee * paid_count, 2)
 
-    # If prize pool mismatch in DB, sync it
-    if abs(float(t.get('prize_pool', 0)) - (float(t.get('entry_fee', 0)) * paid_count)) > 0.01:
+    t['paid_players'] = paid_count
+    t['prize_pool'] = accurate_prize_pool
+
+    # Sync DB if there's a discrepancy
+    if abs(float(t.get('prize_pool', 0)) - accurate_prize_pool) > 0.01:
         execute("UPDATE tournaments SET prize_pool = %(pool)s WHERE id = %(tid)s",
-                {'pool': t['prize_pool'], 'tid': tid})
+                {'pool': accurate_prize_pool, 'tid': tid})
 
     return jsonify({
         'success': True,
