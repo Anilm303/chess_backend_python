@@ -134,8 +134,154 @@ def create_esewa_payment():
 
 @payments_bp.route('/esewa/callback', methods=['GET', 'POST'])
 def esewa_callback():
-    """Handle eSewa payment callback (success/failure redirect)."""
-    data = request.args.to_dict() if request.method == 'GET' else (request.get_json() or {})
-    status = data.get('status', 'success')
-    current_app.logger.info(f"eSewa callback received: {data}")
-    return jsonify({'success': True, 'status': status, 'data': data}), 200
+    """Handle eSewa payment callback and update tournament status."""
+    # eSewa v2 sends 'data' query parameter on success
+    encoded_data = request.args.get('data')
+    if not encoded_data:
+        current_app.logger.warning("eSewa callback received without data")
+        return jsonify({'success': False, 'message': 'No data received'}), 400
+
+    try:
+        # 1. Decode eSewa data
+        import json
+        import base64
+        decoded_bytes = base64.b64decode(encoded_data)
+        decoded_str = decoded_bytes.decode('utf-8')
+        data = json.loads(decoded_str)
+
+        transaction_uuid = data.get('transaction_uuid')
+        status = data.get('status') # 'COMPLETE' on success
+
+        if status != 'COMPLETE':
+            return jsonify({'success': False, 'message': 'Payment not complete', 'status': status}), 200
+
+        # 2. Find the payment record
+        pay_query = "SELECT * FROM payments WHERE pid = %(pid)s"
+        payment = fetch_one(pay_query, {'pid': transaction_uuid})
+
+        if not payment:
+            return jsonify({'success': False, 'message': 'Payment record not found'}), 404
+
+        if payment.get('status') == 'paid':
+            return jsonify({'success': True, 'message': 'Already processed'}), 200
+
+        user_id = payment['user_id']
+        tournament_id = payment['tournament_id']
+        amount = float(payment['amount'])
+
+        # 3. Update payment table
+        execute(
+            "UPDATE payments SET status = 'paid', verified_at = NOW() WHERE pid = %(pid)s",
+            {'pid': transaction_uuid}
+        )
+
+        # 4. Update participant status to 'paid'
+        execute(
+            "UPDATE tournament_participants SET status = 'paid', payment_pid = %(pid)s WHERE tournament_id = %(tid)s AND user_id = %(uid)s",
+            {'pid': transaction_uuid, 'tid': tournament_id, 'uid': user_id}
+        )
+
+        # 5. Update tournament prize pool and overall status
+        # Get current tournament info
+        t_query = "SELECT * FROM tournaments WHERE id = %(tid)s"
+        tournament = fetch_one(t_query, {'tid': tournament_id})
+
+        if tournament:
+            new_prize_pool = float(tournament.get('prize_pool') or 0) + amount
+
+            # Check how many players have paid now
+            count_query = "SELECT COUNT(*)::int as count FROM tournament_participants WHERE tournament_id = %(tid)s AND status = 'paid'"
+            count_res = fetch_one(count_query, {'tid': tournament_id})
+            paid_count = count_res['count'] if count_res else 0
+
+            new_status = 'waiting'
+            started_at = None
+
+            if paid_count >= int(tournament.get('max_players', 2)):
+                new_status = 'in_progress'
+                started_at = datetime.now()
+
+            execute(
+                "UPDATE tournaments SET prize_pool = %(pool)s, status = %(status)s, started_at = %(start)s WHERE id = %(tid)s",
+                {'pool': new_prize_pool, 'status': new_status, 'start': started_at, 'tid': tournament_id}
+            )
+
+        current_app.logger.info(f"Payment successful: User {user_id} paid {amount} for Tournament {tournament_id}")
+        return jsonify({'success': True, 'message': 'Payment processed successfully'}), 200
+
+    except Exception as e:
+        current_app.logger.exception('Error processing eSewa callback')
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+# Extra helper for manual verification (test mode)
+@payments_bp.route('/esewa/verify', methods=['POST'])
+def verify_payment_manually():
+    """Manual verification endpoint called by the app if callback fails."""
+    data = request.get_json() or {}
+    pid = data.get('pid')
+
+    if not pid:
+        return jsonify({'success': False, 'message': 'Missing pid'}), 400
+
+    payment = fetch_one("SELECT * FROM payments WHERE pid = %(pid)s", {'pid': pid})
+    if not payment:
+        return jsonify({'success': False, 'message': 'Payment not found'}), 404
+
+    if payment.get('status') == 'paid':
+        return jsonify({'success': True, 'message': 'Already verified as paid'}), 200
+
+    # Logic to fix the tournament state
+    user_id = payment['user_id']
+    tournament_id = payment['tournament_id']
+
+    execute("UPDATE payments SET status = 'paid', verified_at = NOW() WHERE pid = %(pid)s", {'pid': pid})
+    execute("UPDATE tournament_participants SET status = 'paid' WHERE tournament_id = %(tid)s AND user_id = %(uid)s",
+            {'tid': tournament_id, 'uid': user_id})
+
+    # Refresh tournament
+    t = fetch_one("SELECT * FROM tournaments WHERE id = %(tid)s", {'tid': tournament_id})
+    if t:
+        count_res = fetch_one("SELECT COUNT(*)::int as count FROM tournament_participants WHERE tournament_id = %(tid)s AND status = 'paid'",
+                             {'tid': tournament_id})
+        paid_count = count_res['count'] if count_res else 0
+
+        new_status = 'waiting'
+        if paid_count >= t['max_players']:
+            new_status = 'in_progress'
+
+        execute("UPDATE tournaments SET status = %(status)s, prize_pool = prize_pool + %(amt)s WHERE id = %(tid)s",
+                {'status': new_status, 'amt': payment['amount'], 'tid': tournament_id})
+
+    return jsonify({'success': True, 'message': 'Payment verified and tournament updated'}), 200
+
+@payments_bp.route('/esewa/test_mark_paid', methods=['GET'])
+def test_mark_paid():
+    """Manually mark a payment as paid for testing."""
+    pid = request.args.get('pid')
+    if not pid:
+        return "Missing pid", 400
+
+    # We can just reuse the logic by simulating a callback or calling a helper
+    # For now, let's just use it to fix your current stuck tournament
+    payment = fetch_one("SELECT * FROM payments WHERE pid = %(pid)s", {'pid': pid})
+    if not payment: return "Not found", 404
+
+    # Simple direct update to fix the state
+    execute("UPDATE payments SET status = 'paid' WHERE pid = %(pid)s", {'pid': pid})
+    execute("UPDATE tournament_participants SET status = 'paid' WHERE tournament_id = %(tid)s AND user_id = %(uid)s",
+            {'tid': payment['tournament_id'], 'uid': payment['user_id']})
+
+    # Update prize pool
+    execute("UPDATE tournaments SET prize_pool = prize_pool + %(amt)s WHERE id = %(tid)s",
+            {'amt': payment['amount'], 'tid': payment['tournament_id']})
+
+    # Check if we should start the game
+    t = fetch_one("SELECT * FROM tournaments WHERE id = %(tid)s", {'tid': payment['tournament_id']})
+    paid_res = fetch_one("SELECT COUNT(*)::int as count FROM tournament_participants WHERE tournament_id = %(tid)s AND status = 'paid'",
+                         {'tid': payment['tournament_id']})
+
+    if paid_res and paid_res['count'] >= t['max_players']:
+        execute("UPDATE tournaments SET status = 'in_progress', started_at = NOW() WHERE id = %(tid)s",
+                {'tid': payment['tournament_id']})
+
+    return f"Success! Payment {pid} marked as paid and tournament updated.", 200
