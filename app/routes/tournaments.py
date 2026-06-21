@@ -156,20 +156,24 @@ class DeclareWinnerRequest(BaseModel):
 async def list_tournaments(status: Optional[str] = None):
     """List tournaments, optionally filtered by status."""
     if is_database_url_configured():
+        query = "SELECT * FROM tournaments"
+        params = {}
         if status:
-            rows = fetch_all(
-                "SELECT * FROM tournaments WHERE status = %(st)s ORDER BY created_at DESC",
-                {'st': status},
-            ) or []
-        else:
-            rows = fetch_all(
-                'SELECT * FROM tournaments ORDER BY created_at DESC'
-            ) or []
+            query += " WHERE status = %(st)s"
+            params['st'] = status
+        query += " ORDER BY created_at DESC"
+        rows = fetch_all(query, params) or []
     else:
         rows = list(_MEMORY_TOURNAMENTS.values())
         if status:
             rows = [r for r in rows if r.get('status') == status]
         rows.sort(key=lambda r: r.get('created_at', ''), reverse=True)
+
+    # Ensure all required fields for UI are present
+    for r in rows:
+        if 'paid_players' not in r:
+            r['paid_players'] = _count_paid_participants(r['id'])
+
     return {'tournaments': rows}
 
 
@@ -404,8 +408,13 @@ async def get_tournament(tournament_id: str):
     t = _db_or_memory_get_tournament(tournament_id)
     if not t:
         raise HTTPException(status_code=404, detail='Tournament not found')
+
+    # Add paid players count so the frontend can display (1/2 paid) correctly
+    t_dict = dict(t)
+    t_dict['paid_players'] = _count_paid_participants(tournament_id)
+
     participants = _db_or_memory_get_participants(tournament_id)
-    return {'tournament': t, 'participants': participants}
+    return {'tournament': t_dict, 'participants': participants}
 
 
 @router.get('/tournaments/{tournament_id}/participants')
