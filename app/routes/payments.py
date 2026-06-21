@@ -222,7 +222,9 @@ async def esewa_callback(request: Request):
     if rec.get('status') == 'paid':
         return {'success': True, 'pid': pid, 'verified': True, 'note': 'already_paid'}
 
-    verified, resp = _verify_with_esewa(pid, rec.get('amount') or amt)
+    import asyncio
+    loop = asyncio.get_event_loop()
+    verified, resp = await loop.run_in_executor(None, _verify_with_esewa, pid, rec.get('amount') or amt)
 
     _persist_payment_result(pid, ref_id, verified, resp)
     if verified:
@@ -250,7 +252,9 @@ async def esewa_verify(payload: dict):
     if rec.get('status') == 'paid':
         return {'success': True, 'pid': pid, 'verified': True, 'note': 'already_paid'}
 
-    verified, resp = _verify_with_esewa(pid, rec.get('amount'))
+    import asyncio
+    loop = asyncio.get_event_loop()
+    verified, resp = await loop.run_in_executor(None, _verify_with_esewa, pid, rec.get('amount'))
     _persist_payment_result(pid, rec.get('esewa_ref_id'), verified, resp)
     if verified:
         _notify_tournament_payment(rec.get('tournament_id'), rec.get('user_id'), pid)
