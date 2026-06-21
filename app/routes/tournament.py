@@ -95,11 +95,23 @@ def get_tournament(tid):
 
     t = {k: _decimal_to_float(v) for k, v in row.items()}
 
-    # Get participants and paid count
+    # Get participants
     participants_query = "SELECT * FROM tournament_participants WHERE tournament_id = %(tid)s"
     participants = fetch_all(participants_query, {'tid': tid})
 
-    t['paid_players'] = sum(1 for p in participants if p.get('status') == 'paid')
+    # Recalculate paid count and prize pool for accuracy
+    paid_participants = [p for p in participants if p.get('status') == 'paid']
+    paid_count = len(paid_participants)
+
+    # Entry fee is usually per player, prize pool is entry_fee * paid_count
+    # Update the prize pool in the dictionary we return
+    t['paid_players'] = paid_count
+    t['prize_pool'] = round(float(t.get('entry_fee', 0)) * paid_count, 2)
+
+    # If prize pool mismatch in DB, sync it
+    if abs(float(t.get('prize_pool', 0)) - (float(t.get('entry_fee', 0)) * paid_count)) > 0.01:
+        execute("UPDATE tournaments SET prize_pool = %(pool)s WHERE id = %(tid)s",
+                {'pool': t['prize_pool'], 'tid': tid})
 
     return jsonify({
         'success': True,

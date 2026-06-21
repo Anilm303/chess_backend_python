@@ -710,6 +710,20 @@ def handle_call_ice(data):
     if to_username:
         _emit_to_username(to_username, 'call_ice_candidate', data)
 
+@socketio.on('chess_join')
+def handle_chess_join(data):
+    tournament_id = data.get('tournament_id')
+    if tournament_id:
+        join_room(f"chess_{tournament_id}")
+        print(f"User joined chess room: chess_{tournament_id}")
+
+@socketio.on('chess_move')
+def handle_chess_move(data):
+    tournament_id = data.get('tournament_id')
+    if tournament_id:
+        # Broadcast the move to the other player in the tournament room
+        socketio.emit('chess_move_received', data, room=f"chess_{tournament_id}", include_self=False)
+
 @socketio.on('story_reaction_notification')
 def handle_story_reaction_notification(data):
     _emit_to_username(data.get('recipient_username'), 'story_reaction', data)
