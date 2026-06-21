@@ -53,10 +53,19 @@ def create_tournament():
 @tournament_bp.route('', methods=['GET'])
 @jwt_required(optional=True)
 def list_tournaments():
-    query = "SELECT id, title, game_type, entry_fee, max_players, owner, status, created_at FROM tournaments ORDER BY created_at DESC"
+    query = "SELECT * FROM tournaments ORDER BY created_at DESC"
     rows = fetch_all(query)
-    # Convert decimals
-    tournaments = [{k: _decimal_to_float(v) for k, v in row.items()} for row in rows]
+
+    # Calculate paid participants for each tournament
+    tournaments = []
+    for row in rows:
+        t = {k: _decimal_to_float(v) for k, v in row.items()}
+        # Count paid participants
+        count_query = "SELECT COUNT(*)::int as count FROM tournament_participants WHERE tournament_id = %(tid)s AND status = 'paid'"
+        count_res = fetch_one(count_query, {'tid': t['id']})
+        t['paid_players'] = count_res['count'] if count_res else 0
+        tournaments.append(t)
+
     return jsonify({'success': True, 'tournaments': tournaments})
 
 # Get tournament details
@@ -67,7 +76,20 @@ def get_tournament(tid):
     row = fetch_one(query, {'tid': tid})
     if not row:
         return jsonify({'success': False, 'message': 'Tournament not found'}), 404
-    return jsonify({'success': True, 'tournament': {k: _decimal_to_float(v) for k, v in row.items()}})
+
+    t = {k: _decimal_to_float(v) for k, v in row.items()}
+
+    # Get participants and paid count
+    participants_query = "SELECT * FROM tournament_participants WHERE tournament_id = %(tid)s"
+    participants = fetch_all(participants_query, {'tid': tid})
+
+    t['paid_players'] = sum(1 for p in participants if p.get('status') == 'paid')
+
+    return jsonify({
+        'success': True,
+        'tournament': t,
+        'participants': participants
+    })
 
 # Join tournament – simple implementation (payment handled elsewhere)
 @tournament_bp.route('/<tid>/join', methods=['POST'])
