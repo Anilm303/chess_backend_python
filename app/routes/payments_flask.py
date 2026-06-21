@@ -215,30 +215,36 @@ def esewa_callback():
 
 # Extra helper for manual verification (test mode)
 @payments_bp.route('/esewa/verify', methods=['POST'])
+@jwt_required()
 def verify_payment_manually():
     """Manual verification endpoint called by the app if callback fails."""
     data = request.get_json() or {}
     pid = data.get('pid')
+    user_id = get_jwt_identity()
 
+    # 1. If pid not provided, find the latest pending payment for this user
     if not pid:
-        return jsonify({'success': False, 'message': 'Missing pid'}), 400
+        current_app.logger.info(f"Manual verify: No PID provided, looking for latest pending for {user_id}")
+        query = "SELECT * FROM payments WHERE user_id = %(uid)s AND status = 'pending' ORDER BY created_at DESC LIMIT 1"
+        payment = fetch_one(query, {'uid': user_id})
+    else:
+        payment = fetch_one("SELECT * FROM payments WHERE pid = %(pid)s", {'pid': pid})
 
-    payment = fetch_one("SELECT * FROM payments WHERE pid = %(pid)s", {'pid': pid})
     if not payment:
-        return jsonify({'success': False, 'message': 'Payment not found'}), 404
+        return jsonify({'success': False, 'message': 'No pending payment found to verify. Please try paying again.'}), 404
 
     if payment.get('status') == 'paid':
         return jsonify({'success': True, 'message': 'Already verified as paid'}), 200
 
-    # Logic to fix the tournament state
-    user_id = payment['user_id']
+    # 2. Update the status
+    pid = payment['pid']
     tournament_id = payment['tournament_id']
 
     execute("UPDATE payments SET status = 'paid', verified_at = NOW() WHERE pid = %(pid)s", {'pid': pid})
-    execute("UPDATE tournament_participants SET status = 'paid' WHERE tournament_id = %(tid)s AND user_id = %(uid)s",
-            {'tid': tournament_id, 'uid': user_id})
+    execute("UPDATE tournament_participants SET status = 'paid', payment_pid = %(pid)s WHERE tournament_id = %(tid)s AND user_id = %(uid)s",
+            {'pid': pid, 'tid': tournament_id, 'uid': user_id})
 
-    # Refresh tournament
+    # 3. Update tournament prize pool and status
     t = fetch_one("SELECT * FROM tournaments WHERE id = %(tid)s", {'tid': tournament_id})
     if t:
         count_res = fetch_one("SELECT COUNT(*)::int as count FROM tournament_participants WHERE tournament_id = %(tid)s AND status = 'paid'",
@@ -246,11 +252,13 @@ def verify_payment_manually():
         paid_count = count_res['count'] if count_res else 0
 
         new_status = 'waiting'
-        if paid_count >= t['max_players']:
+        started_at = t.get('started_at')
+        if paid_count >= int(t.get('max_players', 2)):
             new_status = 'in_progress'
+            started_at = datetime.now()
 
-        execute("UPDATE tournaments SET status = %(status)s, prize_pool = prize_pool + %(amt)s WHERE id = %(tid)s",
-                {'status': new_status, 'amt': payment['amount'], 'tid': tournament_id})
+        execute("UPDATE tournaments SET status = %(status)s, prize_pool = prize_pool + %(amt)s, started_at = %(start)s WHERE id = %(tid)s",
+                {'status': new_status, 'amt': payment['amount'], 'tid': tournament_id, 'start': started_at})
 
     return jsonify({'success': True, 'message': 'Payment verified and tournament updated'}), 200
 
