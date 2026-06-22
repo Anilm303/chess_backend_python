@@ -714,15 +714,18 @@ def handle_call_ice(data):
 def handle_chess_join(data):
     tournament_id = data.get('tournament_id')
     if tournament_id:
-        join_room(f"chess_{tournament_id}")
-        print(f"User joined chess room: chess_{tournament_id}")
+        room_name = f"chess_{tournament_id}"
+        join_room(room_name)
+        print(f"DEBUG: User {request.sid} joined chess room: {room_name}")
 
 @socketio.on('chess_move')
 def handle_chess_move(data):
     tournament_id = data.get('tournament_id')
     if tournament_id:
-        # Fast broadcast using room, ensuring immediate delivery
-        socketio.emit('chess_move_received', data, room=f"chess_{tournament_id}", include_self=False)
+        room_name = f"chess_{tournament_id}"
+        print(f"DEBUG: Broadcasting chess_move to room {room_name}")
+        # Use socketio.emit to ensure the event reaches everyone in the room
+        socketio.emit('chess_move_received', data, room=room_name, include_self=False)
 
 @socketio.on('story_reaction_notification')
 def handle_story_reaction_notification(data):
