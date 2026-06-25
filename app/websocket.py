@@ -695,18 +695,30 @@ def handle_call_join_room(data):
 @socketio.on('call_offer')
 def handle_call_offer(data):
     to_username = data.get('to')
+    from_username = data.get('from')
+    print(f"SDP Offer: {from_username} -> {to_username}")
     if to_username:
         _emit_to_username(to_username, 'call_offer', data)
 
 @socketio.on('call_answer')
 def handle_call_answer(data):
     to_username = data.get('to')
+    from_username = data.get('from')
+    print(f"SDP Answer: {from_username} -> {to_username}")
     if to_username:
         _emit_to_username(to_username, 'call_answer', data)
 
 @socketio.on('call_ice_candidate')
 def handle_call_ice(data):
     to_username = data.get('to')
+    from_username = data.get('from')
+    candidate = data.get('candidate', '')
+    cand_type = "unknown"
+    if "typ host" in candidate: cand_type = "HOST"
+    elif "typ srflx" in candidate: cand_type = "STUN"
+    elif "typ relay" in candidate: cand_type = "TURN"
+
+    print(f"ICE Candidate ({cand_type}): {from_username} -> {to_username}")
     if to_username:
         _emit_to_username(to_username, 'call_ice_candidate', data)
 
