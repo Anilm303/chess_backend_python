@@ -234,14 +234,39 @@ def create_app():
     from app import websocket as ws_handlers  # noqa: F401
 
     @app.route('/')
-    def home():
+    def index():
+        """Serve the frontend index.html if it exists, otherwise return a default message"""
+        web_dir = os.path.join(app.root_path, '..', 'web')
+        if os.path.exists(os.path.join(web_dir, 'index.html')):
+            return send_from_directory(web_dir, 'index.html')
+
         return {
             'service': 'chess-backend',
             'status': 'running',
-            'message': 'Chess backend is live',
+            'message': 'Chess backend is live. (Frontend build not found in /web)',
             'health_check': '/api/ping',
             'docs': '/docs',
         }
+
+    @app.route('/<path:path>')
+    def serve_static(path):
+        """Serve static files from the web directory"""
+        web_dir = os.path.join(app.root_path, '..', 'web')
+
+        # Don't intercept /api routes or other internal routes
+        if path.startswith('api/') or path.startswith('uploads/') or path.startswith('media/') or path == 'docs' or path == 'swagger':
+            abort(404)
+
+        # Check if the file exists in the web directory
+        full_path = os.path.join(web_dir, path)
+        if os.path.exists(full_path) and os.path.isfile(full_path):
+            return send_from_directory(web_dir, path)
+
+        # For SPA (Single Page Application) routing, return index.html for unknown paths
+        if os.path.exists(os.path.join(web_dir, 'index.html')):
+            return send_from_directory(web_dir, 'index.html')
+
+        abort(404)
 
     @app.route('/ping')
     def ping():
