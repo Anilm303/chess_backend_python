@@ -55,8 +55,22 @@ def register():
         if not valid_password:
             return jsonify({'success': False, 'message': password_or_message}), 400
 
-        # Register user
-        success, result = User.register(username_or_message, email_or_message, first_name_or_message, last_name_or_message, password_or_message)
+        # Extract extra telehealth fields
+        role = data.get('role', 'patient')
+        specialty = data.get('specialty')
+        fee = data.get('fee', 0)
+
+        # Register user with telehealth role support
+        success, result = User.register(
+            username_or_message,
+            email_or_message,
+            first_name_or_message,
+            last_name_or_message,
+            password_or_message,
+            role=role,
+            specialty=specialty,
+            fee=fee
+        )
 
         if not success:
             return jsonify({'success': False, 'message': result}), 400
