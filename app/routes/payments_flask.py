@@ -42,7 +42,6 @@ def create_esewa_payment():
     user_id = data.get('user_id') or get_jwt_identity()
     amount = data.get('amount')
     tournament_id = data.get('tournament_id')
-    appointment_id = data.get('appointment_id')
 
     # Input validation
     if not user_id:
@@ -54,8 +53,10 @@ def create_esewa_payment():
     except (ValueError, TypeError):
         return jsonify({'success': False, 'message': 'Invalid amount'}), 400
 
-    if not tournament_id and not appointment_id:
-        return jsonify({'success': False, 'message': 'Missing tournament_id or appointment_id'}), 400
+    if amount <= 0:
+        return jsonify({'success': False, 'message': 'Amount must be greater than 0'}), 400
+    if not tournament_id:
+        return jsonify({'success': False, 'message': 'Missing tournament_id'}), 400
 
     # Generate unique transaction UUID
     transaction_uuid = uuid.uuid4().hex
@@ -75,15 +76,14 @@ def create_esewa_payment():
     inserted = None
     if is_database_url_configured():
         q = """
-            INSERT INTO payments (pid, user_id, tournament_id, appointment_id, amount, currency, status, created_at)
-            VALUES (%(pid)s, %(user_id)s, %(tournament_id)s, %(appointment_id)s, %(amount)s, %(currency)s, 'pending', now())
+            INSERT INTO payments (pid, user_id, tournament_id, amount, currency, status, created_at)
+            VALUES (%(pid)s, %(user_id)s, %(tournament_id)s, %(amount)s, %(currency)s, 'pending', now())
             RETURNING id, pid
         """
         params = {
             'pid': transaction_uuid,
             'user_id': user_id,
             'tournament_id': tournament_id,
-            'appointment_id': appointment_id,
             'amount': amount,
             'currency': 'NPR',
         }
@@ -167,8 +167,7 @@ def esewa_callback():
             return jsonify({'success': True, 'message': 'Already processed'}), 200
 
         user_id = payment['user_id']
-        tournament_id = payment.get('tournament_id')
-        appointment_id = payment.get('appointment_id')
+        tournament_id = payment['tournament_id']
         amount = float(payment['amount'])
 
         # 3. Update payment table
@@ -177,21 +176,11 @@ def esewa_callback():
             {'pid': transaction_uuid}
         )
 
-        # 4. Handle logic based on payment type
-        if appointment_id:
-            # Telehealth logic
-            execute(
-                "UPDATE appointments SET is_paid = TRUE, status = 'paid' WHERE id = %(aid)s",
-                {'aid': appointment_id}
-            )
-            current_app.logger.info(f"Telehealth payment successful: User {user_id} paid for Appointment {appointment_id}")
-
-        elif tournament_id:
-            # Chess Tournament Logic
-            execute(
-                "UPDATE tournament_participants SET status = 'paid', payment_pid = %(pid)s WHERE tournament_id = %(tid)s AND user_id = %(uid)s",
-                {'pid': transaction_uuid, 'tid': tournament_id, 'uid': user_id}
-            )
+        # 4. Update participant status to 'paid'
+        execute(
+            "UPDATE tournament_participants SET status = 'paid', payment_pid = %(pid)s WHERE tournament_id = %(tid)s AND user_id = %(uid)s",
+            {'pid': transaction_uuid, 'tid': tournament_id, 'uid': user_id}
+        )
             # ... rest of tournament logic ...
             t_query = "SELECT * FROM tournaments WHERE id = %(tid)s"
             tournament = fetch_one(t_query, {'tid': tournament_id})

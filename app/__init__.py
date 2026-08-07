@@ -218,7 +218,6 @@ def create_app():
     from app.routes.upload import upload_bp
     from app.routes.debug import debug_bp
     from app.routes.tournament import tournament_bp
-    from app.routes.telehealth import telehealth_bp
     app.register_blueprint(auth_bp, url_prefix='/api/auth')
     app.register_blueprint(messaging_bp, url_prefix='/api/messages')
     app.register_blueprint(friends_bp, url_prefix='/api/friends')
@@ -227,7 +226,6 @@ def create_app():
     app.register_blueprint(upload_bp, url_prefix='/api/upload')
     app.register_blueprint(debug_bp, url_prefix='/api/debug')
     app.register_blueprint(tournament_bp, url_prefix='/api/tournaments')
-    app.register_blueprint(telehealth_bp, url_prefix='/api/telehealth')
     # Register payments blueprint for eSewa
     from app.routes.payments_flask import payments_bp
     app.register_blueprint(payments_bp, url_prefix='/api/payments')

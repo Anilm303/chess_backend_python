@@ -163,22 +163,46 @@ class User:
         )
 
     @staticmethod
-    def register(username, email, first_name, last_name, password, role='patient', specialty=None, fee=0):
-        """Register a new user with role and doctor profile if needed"""
+    def register(username, email, first_name, last_name, password):
+        """Register a new user"""
         if User.get_by_username(username):
             return False, 'Username already exists'
+
+        if any(user.get('email') == email for user in get_users().values()):
+            return False, 'Email already registered'
 
         password_hash = generate_password_hash(password)
         now = datetime.utcnow()
 
-        # Insert user with role
+        if _use_local_user_store():
+            users = _load_local_users()
+            users[username] = {
+                'username': username,
+                'email': email,
+                'first_name': first_name,
+                'last_name': last_name,
+                'password_hash': password_hash,
+                'profile_image': None,
+                'bio': '',
+                'fcm_token': None,
+                'friends': [],
+                'friend_requests': [],
+                'created_at': now.isoformat(),
+                'last_seen': now.isoformat(),
+            }
+            _save_local_users(users)
+            return True, User.get_by_username(username)
+
         query = """
             INSERT INTO users (
                 username, email, first_name, last_name, password_hash,
-                role, created_at, last_seen, friends, friend_requests
+                profile_image, bio, fcm_token, friends, friend_requests,
+                created_at, last_seen
             ) VALUES (
                 %(username)s, %(email)s, %(first_name)s, %(last_name)s, %(password_hash)s,
-                %(role)s, %(created_at)s, %(last_seen)s, %(friends)s, %(friend_requests)s
+                %(profile_image)s, %(bio)s, %(fcm_token)s,
+                %(friends)s, %(friend_requests)s,
+                %(created_at)s, %(last_seen)s
             )
         """
         execute(query, {
@@ -187,20 +211,14 @@ class User:
             'first_name': first_name,
             'last_name': last_name,
             'password_hash': password_hash,
-            'role': role,
-            'created_at': now,
-            'last_seen': now,
+            'profile_image': None,
+            'bio': '',
+            'fcm_token': None,
             'friends': json_value([]),
             'friend_requests': json_value([]),
+            'created_at': now,
+            'last_seen': now,
         })
-
-        # If role is doctor, insert into doctors table
-        if role == 'doctor':
-            execute(
-                "INSERT INTO doctors (username, specialty, fee_per_consultation, is_approved) VALUES (%(u)s, %(s)s, %(f)s, TRUE)",
-                {'u': username, 's': specialty or 'General Physician', 'f': fee or 0}
-            )
-
         return True, User.get_by_username(username)
 
     @staticmethod
