@@ -16,8 +16,8 @@ jobs:
 
     env:
       HF_USER: ${{ vars.HF_USER || 'Anil1515' }}
-      HF_SPACE: ${{ vars.HF_SPACE || 'chess-baackend' }}
-      HF_REPO_URL: ${{ vars.HF_REPO_URL || format('https://huggingface.co/spaces/{0}/{1}', vars.HF_USER || 'Anil1515', vars.HF_SPACE || 'chess-baackend') }}
+      HF_SPACE: ${{ vars.HF_SPACE || 'telehealth-portal' }}
+      HF_REPO_URL: ${{ vars.HF_REPO_URL || format('https://huggingface.co/spaces/{0}/{1}', vars.HF_USER || 'Anil1515', vars.HF_SPACE || 'telehealth-portal') }}
 
     steps:
       - name: Checkout source

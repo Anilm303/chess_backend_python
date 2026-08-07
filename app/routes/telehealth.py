@@ -73,3 +73,23 @@ def check_call_permission(appointment_id):
         return jsonify({'success': False, 'can_call': False, 'message': 'Payment required'}), 200
 
     return jsonify({'success': True, 'can_call': True})
+
+# --- Admin Panel Routes ---
+
+@telehealth_bp.route('/admin/dashboard', methods=['GET'])
+@jwt_required()
+def admin_dashboard():
+    """Get all doctors and appointments for admin"""
+    current_user = get_jwt_identity()
+    user = fetch_one("SELECT role FROM users WHERE username = %(u)s", {'u': current_user})
+    if not user or user['role'] != 'admin':
+        return jsonify({'success': False, 'message': 'Admin access required'}), 403
+
+    doctors = fetch_all("SELECT * FROM doctors")
+    appointments = fetch_all("SELECT a.*, u.first_name, u.last_name FROM appointments a JOIN users u ON a.patient_username = u.username ORDER BY a.created_at DESC")
+
+    return jsonify({
+        'success': True,
+        'doctors': doctors,
+        'appointments': appointments
+    })
