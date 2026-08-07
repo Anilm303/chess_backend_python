@@ -42,6 +42,7 @@ def create_esewa_payment():
     user_id = data.get('user_id') or get_jwt_identity()
     amount = data.get('amount')
     tournament_id = data.get('tournament_id')
+    appointment_id = data.get('appointment_id')
 
     # Input validation
     if not user_id:
@@ -52,10 +53,9 @@ def create_esewa_payment():
         amount = float(amount)
     except (ValueError, TypeError):
         return jsonify({'success': False, 'message': 'Invalid amount'}), 400
-    if amount <= 0:
-        return jsonify({'success': False, 'message': 'Amount must be greater than 0'}), 400
-    if not tournament_id:
-        return jsonify({'success': False, 'message': 'Missing tournament_id'}), 400
+
+    if not tournament_id and not appointment_id:
+        return jsonify({'success': False, 'message': 'Missing tournament_id or appointment_id'}), 400
 
     # Generate unique transaction UUID
     transaction_uuid = uuid.uuid4().hex
@@ -75,14 +75,15 @@ def create_esewa_payment():
     inserted = None
     if is_database_url_configured():
         q = """
-            INSERT INTO payments (pid, user_id, tournament_id, amount, currency, status, created_at)
-            VALUES (%(pid)s, %(user_id)s, %(tournament_id)s, %(amount)s, %(currency)s, 'pending', now())
+            INSERT INTO payments (pid, user_id, tournament_id, appointment_id, amount, currency, status, created_at)
+            VALUES (%(pid)s, %(user_id)s, %(tournament_id)s, %(appointment_id)s, %(amount)s, %(currency)s, 'pending', now())
             RETURNING id, pid
         """
         params = {
             'pid': transaction_uuid,
             'user_id': user_id,
             'tournament_id': tournament_id,
+            'appointment_id': appointment_id,
             'amount': amount,
             'currency': 'NPR',
         }
@@ -166,7 +167,8 @@ def esewa_callback():
             return jsonify({'success': True, 'message': 'Already processed'}), 200
 
         user_id = payment['user_id']
-        tournament_id = payment['tournament_id']
+        tournament_id = payment.get('tournament_id')
+        appointment_id = payment.get('appointment_id')
         amount = float(payment['amount'])
 
         # 3. Update payment table
@@ -175,38 +177,39 @@ def esewa_callback():
             {'pid': transaction_uuid}
         )
 
-        # 4. Update participant status to 'paid'
-        execute(
-            "UPDATE tournament_participants SET status = 'paid', payment_pid = %(pid)s WHERE tournament_id = %(tid)s AND user_id = %(uid)s",
-            {'pid': transaction_uuid, 'tid': tournament_id, 'uid': user_id}
-        )
-
-        # 5. Update tournament prize pool and overall status
-        # Get current tournament info
-        t_query = "SELECT * FROM tournaments WHERE id = %(tid)s"
-        tournament = fetch_one(t_query, {'tid': tournament_id})
-
-        if tournament:
-            new_prize_pool = float(tournament.get('prize_pool') or 0) + amount
-
-            # Check how many players have paid now
-            count_query = "SELECT COUNT(*)::int as count FROM tournament_participants WHERE tournament_id = %(tid)s AND status = 'paid'"
-            count_res = fetch_one(count_query, {'tid': tournament_id})
-            paid_count = count_res['count'] if count_res else 0
-
-            new_status = 'waiting'
-            started_at = None
-
-            if paid_count >= int(tournament.get('max_players', 2)):
-                new_status = 'in_progress'
-                started_at = datetime.now()
-
+        # 4. Handle logic based on payment type
+        if appointment_id:
+            # Telehealth logic
             execute(
-                "UPDATE tournaments SET prize_pool = %(pool)s, status = %(status)s, started_at = %(start)s WHERE id = %(tid)s",
-                {'pool': new_prize_pool, 'status': new_status, 'start': started_at, 'tid': tournament_id}
+                "UPDATE appointments SET is_paid = TRUE, status = 'paid' WHERE id = %(aid)s",
+                {'aid': appointment_id}
             )
+            current_app.logger.info(f"Telehealth payment successful: User {user_id} paid for Appointment {appointment_id}")
 
-        current_app.logger.info(f"Payment successful: User {user_id} paid {amount} for Tournament {tournament_id}")
+        elif tournament_id:
+            # Chess Tournament Logic
+            execute(
+                "UPDATE tournament_participants SET status = 'paid', payment_pid = %(pid)s WHERE tournament_id = %(tid)s AND user_id = %(uid)s",
+                {'pid': transaction_uuid, 'tid': tournament_id, 'uid': user_id}
+            )
+            # ... rest of tournament logic ...
+            t_query = "SELECT * FROM tournaments WHERE id = %(tid)s"
+            tournament = fetch_one(t_query, {'tid': tournament_id})
+            if tournament:
+                new_prize_pool = float(tournament.get('prize_pool') or 0) + amount
+                count_query = "SELECT COUNT(*)::int as count FROM tournament_participants WHERE tournament_id = %(tid)s AND status = 'paid'"
+                count_res = fetch_one(count_query, {'tid': tournament_id})
+                paid_count = count_res['count'] if count_res else 0
+                new_status = 'waiting'
+                started_at = None
+                if paid_count >= int(tournament.get('max_players', 2)):
+                    new_status = 'in_progress'
+                    started_at = datetime.now()
+                execute(
+                    "UPDATE tournaments SET prize_pool = %(pool)s, status = %(status)s, started_at = %(start)s WHERE id = %(tid)s",
+                    {'pool': new_prize_pool, 'status': new_status, 'start': started_at, 'tid': tournament_id}
+                )
+            current_app.logger.info(f"Tournament payment successful: User {user_id} paid for Tournament {tournament_id}")
         return jsonify({'success': True, 'message': 'Payment processed successfully'}), 200
 
     except Exception as e:
